@@ -17,6 +17,8 @@
   --disk: #6f55b4;
   --shadow: 0 1px 2px rgba(18, 33, 58, 0.06);
   --radius: 6px;
+  --chart-left: 48px;
+  --chart-right: 20px;
 }
 
 * {
@@ -351,9 +353,7 @@ input {
 }
 
 .cluster-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(270px, 0.75fr);
-  gap: 18px;
+  display: block;
 }
 
 .section-panel,
@@ -413,10 +413,24 @@ input {
 .heatmap-header-copy {
   display: grid;
   gap: 4px;
+  flex: 1;
 }
 
 .heatmap-header strong {
   font-size: 1.05rem;
+}
+
+.window-inline {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.heatmap-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: end;
 }
 
 .heatmap-header span,
@@ -426,7 +440,7 @@ input {
 }
 
 .heatmap-canvas-wrap {
-  padding: 12px 14px;
+  padding: 12px var(--chart-right) 12px var(--chart-left);
 }
 
 .heatmap-stack {
@@ -458,7 +472,7 @@ input {
 }
 
 .brush-wrap {
-  padding: 0 14px 14px;
+  padding: 0 var(--chart-right) 14px var(--chart-left);
 }
 
 .brush-wrap svg {
@@ -473,7 +487,7 @@ input {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 0 14px 14px;
+  padding: 0 var(--chart-right) 14px var(--chart-left);
 }
 
 .legend-gradient {
@@ -530,9 +544,20 @@ input {
 .explorer-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.82fr);
-  gap: 18px;
+  gap: 0;
   margin-top: 20px;
   align-items: start;
+}
+
+.explorer-detail-grid > .metric-panel:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.explorer-detail-grid > .metric-panel:last-child {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .metric-panel-wide {
@@ -615,7 +640,8 @@ input {
 }
 
 .method-article {
-  max-width: 760px;
+  width: 100%;
+  max-width: none;
   display: grid;
   gap: 14px;
 }
@@ -630,6 +656,21 @@ input {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.term-hint {
+  border-bottom: 1px dashed rgba(95, 107, 123, 0.55);
+  color: inherit;
+  cursor: help;
+  text-decoration: none;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.term-hint:hover,
+.term-hint:focus-visible {
+  border-bottom-color: rgba(24, 33, 47, 0.72);
+  color: var(--ink);
+  outline: none;
 }
 
 .tooltip {
@@ -683,7 +724,6 @@ input {
 
 @media (max-width: 1040px) {
   .hero,
-  .cluster-grid,
   .explorer-grid,
   .explorer-detail-grid,
   .method-grid {
@@ -692,6 +732,11 @@ input {
 }
 
 @media (max-width: 760px) {
+  :root {
+    --chart-left: 18px;
+    --chart-right: 12px;
+  }
+
   .page-shell {
     width: min(100vw - 18px, 1100px);
   }

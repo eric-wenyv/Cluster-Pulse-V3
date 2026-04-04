@@ -291,6 +291,33 @@ function computeAverage(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+const TERM_EXPLANATIONS = {
+  trace: '对生产集群运行状态按时间记录形成的原始轨迹数据。',
+  failureDomain: '共享某类底层故障风险的一组机器。数据集中提供匿名化的两层故障域 failure_domain_1 和 failure_domain_2。',
+  dag: '有向无环图，用来表示任务之间的依赖和执行先后关系。',
+  machineMeta: '机器元数据表，包含机器编号、故障域、CPU 核数、内存规格和状态变化。',
+  machineUsage: '机器利用率表，记录 CPU、内存、网络和磁盘等资源的时间序列使用情况。',
+  treemap: '用矩形面积表示数值大小的图表，适合看占比，不适合精确排序。',
+  brush: '在图上拖拽并框选连续范围的交互方式，这里主要用于选择时间窗口。',
+  sample: '从真实原始数据中抽取的子集，用于降低网页体积并保持交互流畅。',
+  full: '基于原始数据的完整聚合结果，覆盖范围更全，但文件体积更大。',
+  githubPages: 'GitHub 提供的静态网站托管服务，这个项目从 main 分支的 docs 目录发布。',
+  mbtaViz: '一个以波士顿地铁数据为主题的叙事式可视化案例，这里主要参考其页面组织方式。'
+} as const;
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderTerm(label: string, description: string): string {
+  return `<span class="term-hint" tabindex="0" data-term-label="${escapeHtml(label)}" data-term-tooltip="${escapeHtml(description)}">${escapeHtml(label)}</span>`;
+}
+
 class ClusterPulseApp {
   private readonly root: HTMLDivElement;
   private readonly data: AppData;
@@ -384,7 +411,7 @@ class ClusterPulseApp {
           <h1>集群压力判断</h1>
           <p class="hero-lead">
             这个页面聚焦机器级资源热点，回答生产集群里 CPU、内存、网络与磁盘压力何时抬头，
-            热点是否集中在某些故障域，以及单台机器在 8 天周期里的行为曲线如何变化。
+            热点是否集中在某些${renderTerm('故障域', TERM_EXPLANATIONS.failureDomain)}，以及单台机器在 8 天周期里的行为曲线如何变化。
           </p>
           <div class="hero-cta">
             <a href="#pulse">进入主图</a>
@@ -417,8 +444,12 @@ class ClusterPulseApp {
                   <div class="heatmap-header-copy">
                     <strong id="heatmap-title">数据加载中…</strong>
                     <span id="heatmap-subtitle"></span>
+                    <span class="window-inline" id="window-copy">热力图进入视口后将自动加载压缩矩阵。</span>
                   </div>
-                  <button class="domain-clear" id="clear-heatmap-filter" type="button">清除主图筛选</button>
+                  <div class="heatmap-actions">
+                    <button class="domain-clear" id="show-all-machines" type="button">全部机器</button>
+                    <button class="domain-clear" id="clear-heatmap-filter" type="button">清除主图筛选</button>
+                  </div>
                 </div>
                 <div class="heatmap-canvas-wrap">
                   <div class="heatmap-stack">
@@ -438,22 +469,6 @@ class ClusterPulseApp {
                 </div>
               </div>
             </div>
-            <aside class="story-panel">
-              <div class="finding-card">
-                <span class="label">当前窗口</span>
-                <strong id="window-title">等待数据加载</strong>
-                <p id="window-copy">热力图进入视口后将自动加载压缩矩阵。</p>
-              </div>
-              <div class="highlight-list" id="pulse-highlights"></div>
-              <div class="finding-card">
-                <span class="label">阅读提示</span>
-                <ul>
-                  <li>颜色越深表示该时间窗内的资源占用越高。</li>
-                  <li>在主热力图里拖拽可同时筛选时间与机器范围，下方联动图会同步变化。</li>
-                  <li>点击单台机器后，可在下方单机曲线里查看 8 天完整变化。</li>
-                </ul>
-              </div>
-            </aside>
           </div>
         </section>
         <div class="section-bridge">
@@ -550,10 +565,11 @@ class ClusterPulseApp {
     const metricButtons = this.root.querySelector<HTMLDivElement>('#metric-buttons');
     const clearDomainButton = this.root.querySelector<HTMLButtonElement>('#clear-domain-filter');
     const clearHeatmapButton = this.root.querySelector<HTMLButtonElement>('#clear-heatmap-filter');
+    const showAllMachinesButton = this.root.querySelector<HTMLButtonElement>('#show-all-machines');
     const heatmapCanvas = this.root.querySelector<HTMLCanvasElement>('#heatmap-base');
     const heatmapOverlayCanvas = this.root.querySelector<HTMLCanvasElement>('#heatmap-overlay');
 
-    if (!metricButtons || !clearDomainButton || !clearHeatmapButton || !heatmapCanvas || !heatmapOverlayCanvas) {
+    if (!metricButtons || !clearDomainButton || !clearHeatmapButton || !showAllMachinesButton || !heatmapCanvas || !heatmapOverlayCanvas) {
       throw new Error('Missing static visualization mount nodes.');
     }
 
@@ -575,11 +591,18 @@ class ClusterPulseApp {
 
     clearDomainButton.addEventListener('click', () => {
       this.state.activeDomainId = null;
+      this.state.machineFilterIndices = null;
       this.renderInteractiveViews();
     });
 
     clearHeatmapButton.addEventListener('click', () => {
       this.clearHeatmapFilter();
+    });
+
+    showAllMachinesButton.addEventListener('click', () => {
+      this.state.activeDomainId = null;
+      this.state.machineFilterIndices = null;
+      this.renderInteractiveViews();
     });
 
     heatmapOverlayCanvas.addEventListener('pointerdown', (event) => {
@@ -690,6 +713,66 @@ class ClusterPulseApp {
     heatmapOverlayCanvas.addEventListener('pointercancel', () => {
       this.resetHeatmapDrag();
     });
+
+    this.root.addEventListener('mouseover', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-term-tooltip]');
+      if (!target || !this.root.contains(target)) {
+        return;
+      }
+      const label = target.dataset.termLabel;
+      const description = target.dataset.termTooltip;
+      if (!label || !description) {
+        return;
+      }
+      this.showTooltip(event.clientX, event.clientY, `<strong>${label}</strong><br />${description}`);
+    });
+
+    this.root.addEventListener('mousemove', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-term-tooltip]');
+      if (!target || !this.root.contains(target)) {
+        return;
+      }
+      const label = target.dataset.termLabel;
+      const description = target.dataset.termTooltip;
+      if (!label || !description) {
+        return;
+      }
+      this.showTooltip(event.clientX, event.clientY, `<strong>${label}</strong><br />${description}`);
+    });
+
+    this.root.addEventListener('mouseout', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-term-tooltip]');
+      if (!target || !this.root.contains(target)) {
+        return;
+      }
+      const relatedTarget = event.relatedTarget as Node | null;
+      if (relatedTarget && target.contains(relatedTarget)) {
+        return;
+      }
+      this.hideTooltip();
+    });
+
+    this.root.addEventListener('focusin', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-term-tooltip]');
+      if (!target || !this.root.contains(target)) {
+        return;
+      }
+      const label = target.dataset.termLabel;
+      const description = target.dataset.termTooltip;
+      if (!label || !description) {
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      this.showTooltip(rect.left + rect.width / 2, rect.bottom, `<strong>${label}</strong><br />${description}`);
+    });
+
+    this.root.addEventListener('focusout', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-term-tooltip]');
+      if (!target || !this.root.contains(target)) {
+        return;
+      }
+      this.hideTooltip();
+    });
   }
 
   private resetHeatmapDrag(): void {
@@ -713,10 +796,12 @@ class ClusterPulseApp {
 
   private renderHeatmapFilterButton(): void {
     const button = this.root.querySelector<HTMLButtonElement>('#clear-heatmap-filter');
-    if (!button) {
+    const showAllMachinesButton = this.root.querySelector<HTMLButtonElement>('#show-all-machines');
+    if (!button || !showAllMachinesButton) {
       return;
     }
     button.disabled = !this.hasActiveHeatmapFilter();
+    showAllMachinesButton.disabled = !this.state.activeDomainId && !this.state.machineFilterIndices?.length;
   }
 
   private applyHeatmapBrush(
@@ -773,12 +858,10 @@ class ClusterPulseApp {
 
   private setLoadingState(): void {
     const heatmapTitle = this.root.querySelector<HTMLElement>('#heatmap-title');
-    const windowTitle = this.root.querySelector<HTMLElement>('#window-title');
     const windowCopy = this.root.querySelector<HTMLElement>('#window-copy');
-    if (heatmapTitle && windowTitle && windowCopy) {
+    if (heatmapTitle && windowCopy) {
       heatmapTitle.textContent = '正在加载热力图数据…';
-      windowTitle.textContent = '正在拉取压缩矩阵';
-      windowCopy.textContent = '首次进入主图时延迟加载二进制矩阵，以保证 GitHub Pages 首屏体积可控。';
+      windowCopy.textContent = '当前窗口说明：首次进入主图时延迟加载二进制矩阵，以保证 GitHub Pages 首屏体积可控。';
     }
   }
 
@@ -996,34 +1079,6 @@ class ClusterPulseApp {
 
   private renderHotspotLists(): void {
     const heroHighlights = this.root.querySelector<HTMLDivElement>('#hero-highlights');
-    const pulseHighlights = this.root.querySelector<HTMLDivElement>('#pulse-highlights');
-    if (!pulseHighlights) {
-      return;
-    }
-
-    const cards = this.data.hotspots.highlights
-      .map(
-        (highlight) => `
-          <a class="highlight-card" href="#pulse" data-hotspot-id="${highlight.id}">
-            <span class="label">${METRIC_META[highlight.metricId].label} 热点</span>
-            <strong>${highlight.title}</strong>
-            <p>${highlight.summary}</p>
-          </a>
-        `
-      )
-      .join('');
-
-    pulseHighlights.innerHTML = cards;
-    pulseHighlights.querySelectorAll<HTMLAnchorElement>('a[data-hotspot-id]').forEach((anchor) => {
-      anchor.addEventListener('click', (event) => {
-        event.preventDefault();
-        const hotspot = this.data.hotspots.highlights.find((item) => item.id === anchor.dataset.hotspotId);
-        if (!hotspot) {
-          return;
-        }
-        this.activateHotspot(hotspot);
-      });
-    });
 
     if (heroHighlights) {
       heroHighlights.querySelectorAll<HTMLAnchorElement>('a[data-hotspot-id]').forEach((anchor) => {
@@ -1248,11 +1303,10 @@ class ClusterPulseApp {
   private renderWindowCard(stats: WindowMachineStat[]): void {
     const heatmapTitle = this.root.querySelector<HTMLElement>('#heatmap-title');
     const heatmapSubtitle = this.root.querySelector<HTMLElement>('#heatmap-subtitle');
-    const windowTitle = this.root.querySelector<HTMLElement>('#window-title');
     const windowCopy = this.root.querySelector<HTMLElement>('#window-copy');
     const top = stats[0];
 
-    if (!heatmapTitle || !heatmapSubtitle || !windowTitle || !windowCopy) {
+    if (!heatmapTitle || !heatmapSubtitle || !windowCopy || !top) {
       return;
     }
 
@@ -1261,8 +1315,7 @@ class ClusterPulseApp {
       this.state.timeWindow,
       this.data.manifest.binSeconds
     )}`;
-    windowTitle.textContent = `${top.machine.machineId} 主导当前窗口`;
-    windowCopy.textContent = `当前筛选下，FD-${top.domainId} 的 ${top.machine.machineId} 在 ${METRIC_META[this.state.metricId].label} 指标上最突出，峰值 ${formatPercent(
+    windowCopy.textContent = `当前窗口：FD-${top.domainId} 的 ${top.machine.machineId} 在 ${METRIC_META[this.state.metricId].label} 指标上最突出，峰值 ${formatPercent(
       top.peaks[this.state.metricId]
     )}，窗口均值 ${formatPercent(top.averages[this.state.metricId])}。`;
   }
@@ -1784,28 +1837,38 @@ class ClusterPulseApp {
 
     const leadHighlight = this.data.hotspots.highlights[0];
     container.innerHTML = `
-      <h3>研究问题</h3>
+      <h3>可视化方案要解答什么问题</h3>
       <p>
-        这个可视化围绕一个窄而明确的问题展开：在 8 天生产 trace 里，资源热点出现在哪些时间窗、集中在哪些故障域，
-        单台机器是短时冲高还是持续承压。相较于把所有表一起堆进界面，这里先把 machine 级 story 做深。
+        这个可视化围绕一个具体而可检验的问题展开：在 Alibaba 2018 集群的 8 天 ${renderTerm('trace', TERM_EXPLANATIONS.trace)} 中，CPU、内存、网络与磁盘压力何时出现，
+        热点是零散分布在少数机器上，还是集中在某些${renderTerm('故障域', TERM_EXPLANATIONS.failureDomain)}中，以及被选中的机器在完整周期里究竟表现为短时尖峰、持续高负载，
+        还是多种资源同时抬升。页面没有试图同时覆盖容器、批处理任务与调度 ${renderTerm('DAG', TERM_EXPLANATIONS.dag)}，而是先把机器级资源热点这一条分析链讲清楚。
       </p>
       <p>
-        主图回答“何时、在哪”，中段的散点图与故障域条形图回答“热点是否成簇”，下方单机曲线则回答
-        “被选中的机器究竟是短峰值、持续压力，还是跨指标联动”。
+        因此，主热力图负责回答“热点发生在什么时候、落在哪些机器上”，中段的散点图与故障域条形图负责回答“当前窗口里的热点是否集中成簇”，
+        下方单机四条资源曲线则负责回答“某台机器的热点究竟是什么形态”。三个视图对应的是同一个问题的全局、局部和解释三个层次。
       </p>
-      <h3>设计决策</h3>
+      <h3>设计决策依据、替代方案与最终取舍</h3>
       <p>
-        页面结构参考 MBTA Viz 的长文阅读方式：先用开篇段落定义问题，再把解释文字放在图表之间与结尾，而不是把所有说明都塞进卡片。
-        视觉编码仍然选择热力图与联动分析，是因为它们更适合保留精确时间轴和故障域排序。
+        页面结构采用文章式布局，先提出问题，再进入图表，最后在页面结尾集中交代方法说明。这一结构参考了 ${renderTerm('MBTA Viz', TERM_EXPLANATIONS.mbtaViz)} 的长文式可视化组织方式，
+        因为本项目更像一篇带交互的分析文章，而不是一组可以独立阅读的监控卡片。相比把文字解释全部塞进侧栏或提示框，段落式说明更适合交代研究问题、
+        设计理由和外部引用，也更符合课程要求中“说明文档可与作品置于同一页面”的提交方式。
       </p>
       <p>
-        交互上保留直接拖拽与点击，让探索路径保持“先全局、再聚焦、再解释”的顺序。时间刷选、故障域过滤和机器选择都作用于同一组视图，
-        这样用户不需要在多级菜单之间来回切换。
+        主图最终选择热力图，而没有采用多折线、堆叠面积图或汇总柱图。原因是这个任务必须同时保留连续时间轴和按故障域排序后的机器分布；
+        若改用折线，机器数量一多就会严重遮挡；若只做汇总柱图，虽然便于比较均值，却会丢失热点是“成片出现”还是“局部闪现”的结构信息。
+        中段采用 CPU 对内存的散点图，是为了把当前时间窗内的机器分布投影到一个便于比较的位置图上，再用点大小编码当前指标峰值，从而区分
+        “均值偏高”和“峰值突刺”两类不同状态。故障域部分使用条形图而不是 ${renderTerm('treemap', TERM_EXPLANATIONS.treemap)} 或饼图，是因为这里更关心排序与集中度，而不是面积占比。
       </p>
-      <h3>数据与开发流程</h3>
       <p>
-        页面部署的是静态聚合结果；真实原始数据通过脚本下载与处理。当前产物优先保证 GitHub Pages 可直接部署，
-        并保留 full 与 sample 两条数据路径。${leadHighlight ? `页面默认聚焦 ${leadHighlight.title}。` : '页面默认展示全局最强热点窗口。'}
+        交互上最终保留了指标切换、主图框选、故障域过滤和机器点击四类操作。也考虑过只保留底部时间轴 ${renderTerm('brush', TERM_EXPLANATIONS.brush)} 的方案，但那样无法直接在主图里同时选择
+        时间与机器范围；也考虑过更复杂的筛选菜单，但会打断阅读路径。最终版本选择在主热力图上直接框选，再让散点图、排行表和单机曲线同步联动，
+        以减少界面跳转成本。${leadHighlight ? `页面默认聚焦 ${leadHighlight.title}，也是为了让首次进入页面的读者立即看到一个真实的热点窗口。` : '页面默认从全局最强热点窗口开始，避免首屏停留在过于平缓的状态。'}
+      </p>
+      <h3>外部资源引用</h3>
+      <p>
+        数据源来自 Alibaba Cluster Trace 2018，本项目实际使用的是其中的 ${renderTerm('machine_meta', TERM_EXPLANATIONS.machineMeta)} 与 ${renderTerm('machine_usage', TERM_EXPLANATIONS.machineUsage)} 两张表。页面中的静态数据并非手工构造示例，
+        而是由脚本下载原始数据后按 15 分钟时间窗聚合生成，再部署到 ${renderTerm('GitHub Pages', TERM_EXPLANATIONS.githubPages)}。除数据源外，页面的叙事结构和长文式排版参考了 ${renderTerm('MBTA Viz', TERM_EXPLANATIONS.mbtaViz)}；
+        本项目没有直接复用其代码和图形，而是借用了其“以文章节奏组织交互可视化”的写法。
       </p>
       <p class="source-inline">
         参考资料：
@@ -1814,6 +1877,21 @@ class ClusterPulseApp {
         <a href="${this.data.manifest.sources.datasetDocsUrl}" target="_blank" rel="noreferrer">Alibaba trace 文档</a>
         <span> / </span>
         <a href="${this.data.manifest.sources.datasetSchemaUrl}" target="_blank" rel="noreferrer">Alibaba schema</a>
+        <span> / </span>
+        <a href="https://mbtaviz.github.io/" target="_blank" rel="noreferrer">MBTA Viz</a>
+      </p>
+      <h3>开发流程概述与评述</h3>
+      <p>
+        当前版本按单人项目推进，数据处理、前端实现、交互联动、样式调整与 GitHub Pages 部署均由同一人完成。如果按工时估算，
+        从方案确定、数据脚本编写、前端实现到上线整理大约花费 25 到 35 小时，其中最耗时的并不是基础页面搭建，而是两类工作：
+        一类是把原始 trace 清洗并压缩成适合静态网页加载的结构，另一类是反复调整主热力图和联动交互，使页面在 GitHub Pages 环境下既能显示真实数据，
+        又不至于过于卡顿。
+      </p>
+      <p>
+        开发过程前期主要时间投入在数据管线和指标定义上，例如如何处理缺失值、如何定义热点、如何在 ${renderTerm('sample', TERM_EXPLANATIONS.sample)} 与 ${renderTerm('full', TERM_EXPLANATIONS.full)} 两种模式之间共享统一输出接口。
+        中后期则主要花在交互和版式迭代，包括主图框选、故障域过滤、单机曲线联动，以及把页面从仪表盘式布局收敛成文章式结构。回头看，最关键的取舍
+        是先缩小问题范围，只做机器级资源热点，而不是把容器、批处理任务和调度关系同时塞进一个页面里；这个取舍让页面能够围绕同一个问题形成完整叙事，
+        也让说明文档与图表之间保持一一对应。
       </p>
     `;
   }
