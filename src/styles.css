@@ -118,8 +118,10 @@ input {
 }
 
 .hero h1 {
-  max-width: 12ch;
-  font-size: clamp(2.8rem, 4.8vw, 4.6rem);
+  max-width: none;
+  width: 100%;
+  font-size: clamp(3rem, 6vw, 5.6rem);
+  line-height: 0.96;
 }
 
 .section-heading h2 {
@@ -185,7 +187,7 @@ input {
   flex-wrap: wrap;
   gap: 10px 18px;
   align-items: center;
-  max-width: 760px;
+  width: 100%;
   padding: 12px 0 2px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -193,13 +195,12 @@ input {
 
 .summary-ribbon-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  max-width: 760px;
+  width: 100%;
 }
 
 .section-panel,
-.story-panel,
 .metric-panel,
 .method-card,
 .mini-metric-card {
@@ -214,14 +215,6 @@ input {
   background: var(--surface-soft);
 }
 
-.finding-card,
-.highlight-card {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface-soft);
-}
-
 .highlight-list {
   display: grid;
   gap: 10px;
@@ -229,7 +222,11 @@ input {
 
 .highlight-card {
   display: block;
+  padding-bottom: 10px;
+  color: var(--muted);
   text-decoration: none;
+  line-height: 1.72;
+  border-bottom: 1px solid var(--line);
 }
 
 .highlight-card strong {
@@ -253,7 +250,7 @@ input {
 .hero-findings {
   display: grid;
   gap: 10px;
-  max-width: 760px;
+  width: 100%;
 }
 
 .hero-findings p {
@@ -299,7 +296,7 @@ input {
 .article-links {
   display: grid;
   gap: 10px;
-  max-width: 760px;
+  width: 100%;
 }
 
 .annotation-link {
@@ -334,10 +331,22 @@ input {
   border-top: 1px solid var(--line);
 }
 
+.section-bridge {
+  width: 100%;
+  margin: 4px 0 10px;
+}
+
+.section-bridge p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.06rem;
+  line-height: 1.8;
+}
+
 .section-heading {
   display: grid;
   gap: 8px;
-  max-width: 860px;
+  width: 100%;
   margin-bottom: 18px;
 }
 
@@ -352,6 +361,13 @@ input {
 .metric-panel,
 .method-card {
   padding: 18px;
+}
+
+.story-panel {
+  padding: 6px 0 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .metric-controls {

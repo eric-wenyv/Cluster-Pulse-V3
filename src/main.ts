@@ -149,22 +149,22 @@ const METRIC_META: Record<
     interpolator: d3.interpolateRgbBasis(['#f5ebde', '#f8c36f', '#e58e2e', '#992d0f'])
   },
   memory: {
-    label: 'Memory',
-    short: 'Memory',
+    label: '内存',
+    short: '内存',
     accent: '#178f8f',
     description: '刻画机器在 15 分钟窗口内的平均内存占用。',
     interpolator: d3.interpolateRgbBasis(['#eaf5f1', '#8ed7c9', '#2aa79d', '#0e5a55'])
   },
   network: {
-    label: 'Network',
-    short: 'Network',
+    label: '网络',
+    short: '网络',
     accent: '#4673df',
     description: '使用 net_in 与 net_out 的峰值，暴露网络热点集中窗口。',
     interpolator: d3.interpolateRgbBasis(['#edf2fb', '#9ec3ff', '#4c7de7', '#173a8c'])
   },
   disk: {
-    label: 'Disk',
-    short: 'Disk',
+    label: '磁盘',
+    short: '磁盘',
     accent: '#8c62e0',
     description: '刻画磁盘 IO 利用率，用来捕捉后台写入或批量读写活动。',
     interpolator: d3.interpolateRgbBasis(['#f3edff', '#cab4ff', '#9568e8', '#5e2db4'])
@@ -302,19 +302,19 @@ class ClusterPulseApp {
   private hoverMachineIndex: number | null = null;
   private heatmapDragStart:
     | {
-        clientX: number;
-        clientY: number;
-        binIndex: number;
-        rowIndex: number;
-        machineIndex: number;
-      }
+      clientX: number;
+      clientY: number;
+      binIndex: number;
+      rowIndex: number;
+      machineIndex: number;
+    }
     | null = null;
   private heatmapDragCurrent:
     | {
-        binIndex: number;
-        rowIndex: number;
-        machineIndex: number;
-      }
+      binIndex: number;
+      rowIndex: number;
+      machineIndex: number;
+    }
     | null = null;
   private heatmapDragging = false;
   private cachedVisibleIndicesKey = '';
@@ -369,21 +369,21 @@ class ClusterPulseApp {
     return `
       <div class="page-shell">
         <header class="site-header">
-          <div class="site-badge">Cluster Pulse</div>
+          <div class="site-badge">集群资源观察</div>
           <nav class="site-nav">
-            <a href="#overview">Overview</a>
-            <a href="#pulse">Cluster Pulse</a>
-            <a href="#explorer">Hotspot Explorer</a>
-            <a href="#machine-detail">Machine Detail</a>
-            <a href="#methodology">Methodology</a>
+            <a href="#overview">概览</a>
+            <a href="#pulse">热力图</a>
+            <a href="#explorer">机器与故障域</a>
+            <a href="#machine-detail">单机曲线</a>
+            <a href="#methodology">方法说明</a>
           </nav>
         </header>
 
         <section id="overview" class="hero">
-          <div class="eyebrow">Alibaba 2018 Trace</div>
-          <h1>When does the cluster feel pressure?</h1>
+          <div class="eyebrow">Alibaba 2018 集群数据</div>
+          <h1>集群压力判断</h1>
           <p class="hero-lead">
-            Cluster Pulse 聚焦机器级资源热点，回答生产集群里 CPU、内存、网络与磁盘压力何时抬头，
+            这个页面聚焦机器级资源热点，回答生产集群里 CPU、内存、网络与磁盘压力何时抬头，
             热点是否集中在某些故障域，以及单台机器在 8 天周期里的行为曲线如何变化。
           </p>
           <div class="hero-cta">
@@ -395,15 +395,16 @@ class ClusterPulseApp {
           <div class="summary-ribbon-grid" id="summary-ribbons"></div>
           <div class="article-links" id="hero-highlights"></div>
         </section>
+        <div class="section-bridge">
+          <p>
+            先从全局分布看起。把机器按故障域排列到同一条时间轴上之后，资源压力是零散抬升还是成片集中，会比单看均值更容易辨认。
+          </p>
+        </div>
 
         <section id="pulse" class="section">
           <div class="section-heading">
-            <div class="eyebrow">Cluster Pulse</div>
-            <h2>机器 × 时间热力图</h2>
-            <p class="section-copy">
-              使用 15 分钟时间窗，把机器按故障域排序，观察资源热点在时间轴上的聚集与扩散。
-              切换指标、直接在主热力图拖拽框选时间与机器，或使用下方时间轴细调窗口，所有视图将保持联动。
-            </p>
+            <div class="eyebrow">资源热点</div>
+            <h2>机器资源热点热力图</h2>
           </div>
           <div class="cluster-grid">
             <div class="section-panel">
@@ -414,7 +415,7 @@ class ClusterPulseApp {
               <div class="heatmap-stage">
                 <div class="heatmap-header">
                   <div class="heatmap-header-copy">
-                    <strong id="heatmap-title">Loading…</strong>
+                    <strong id="heatmap-title">数据加载中…</strong>
                     <span id="heatmap-subtitle"></span>
                   </div>
                   <button class="domain-clear" id="clear-heatmap-filter" type="button">清除主图筛选</button>
@@ -439,38 +440,39 @@ class ClusterPulseApp {
             </div>
             <aside class="story-panel">
               <div class="finding-card">
-                <span class="label">Current window</span>
+                <span class="label">当前窗口</span>
                 <strong id="window-title">等待数据加载</strong>
                 <p id="window-copy">热力图进入视口后将自动加载压缩矩阵。</p>
               </div>
               <div class="highlight-list" id="pulse-highlights"></div>
               <div class="finding-card">
-                <span class="label">How to read</span>
+                <span class="label">阅读提示</span>
                 <ul>
                   <li>颜色越深表示该时间窗内的资源占用越高。</li>
                   <li>在主热力图里拖拽可同时筛选时间与机器范围，下方联动图会同步变化。</li>
-                  <li>点击单台机器后，可在 Machine Detail 里查看 8 天完整曲线。</li>
+                  <li>点击单台机器后，可在下方单机曲线里查看 8 天完整变化。</li>
                 </ul>
               </div>
             </aside>
           </div>
         </section>
+        <div class="section-bridge">
+          <p>
+            全局热力图能告诉我们热点出现在哪里，但还不能说明热点是由少数机器推动，还是在某个故障域中成簇出现。下一部分把当前窗口拆回机器与故障域。
+          </p>
+        </div>
 
         <section id="explorer" class="section">
           <div class="section-heading">
-            <div class="eyebrow">Hotspot Explorer</div>
-            <h2>把热点拆成机器与故障域</h2>
-            <p class="section-copy">
-              当前时间窗内，每个点是一台机器。横轴是 CPU 均值，纵轴是内存均值，颜色显示主导热点类型，
-              点大小对应窗口内峰值。右侧条形图定位热点最密集的故障域，下方并行展示当前窗口热点排行与单机资源曲线。
-            </p>
+            <div class="eyebrow">机器与故障域</div>
+            <h2>机器分布与故障域集中度</h2>
           </div>
           <div class="explorer-grid">
             <div class="metric-panel">
               <div class="metric-header">
                 <div>
-                  <span class="label">Scatter</span>
-                  <strong>CPU vs Memory</strong>
+                  <span class="label">散点图</span>
+                  <strong>CPU 与内存均值</strong>
                 </div>
                 <span id="scatter-caption"></span>
               </div>
@@ -479,7 +481,7 @@ class ClusterPulseApp {
             <div class="metric-panel">
               <div class="metric-header">
                 <div>
-                  <span class="label">Failure Domain</span>
+                  <span class="label">故障域</span>
                   <strong>热点集中度</strong>
                 </div>
                 <button class="domain-clear" id="clear-domain-filter" type="button">清除故障域过滤</button>
@@ -491,20 +493,20 @@ class ClusterPulseApp {
             <div class="metric-panel metric-panel-wide" id="machine-detail">
               <div class="machine-detail-title">
                 <div>
-                  <span class="label">Selected Machine</span>
+                  <span class="label">选中机器</span>
                   <strong id="machine-title">等待加载</strong>
                 </div>
                 <span id="machine-subtitle"></span>
               </div>
               <p class="detail-copy">
-                四条资源虚线共用同一时间轴。阴影区域对应当前窗口，便于把排行中的机器直接还原到完整 8 天曲线里。
+                四条资源曲线共用同一时间轴。阴影区域对应当前窗口，便于把排行中的机器直接还原到完整 8 天曲线里。
               </p>
               <div class="small-multiples" id="machine-multiples"></div>
             </div>
             <div class="metric-panel">
               <div class="metric-header">
                 <div>
-                  <span class="label">Top Machines</span>
+                  <span class="label">热点排行</span>
                   <strong>当前窗口热点排行</strong>
                 </div>
                 <span id="table-caption"></span>
@@ -516,7 +518,7 @@ class ClusterPulseApp {
                       <th>机器</th>
                       <th>故障域</th>
                       <th>CPU</th>
-                      <th>Memory</th>
+                      <th>内存</th>
                       <th>主导热点</th>
                       <th>峰值</th>
                     </tr>
@@ -527,14 +529,16 @@ class ClusterPulseApp {
             </div>
           </div>
         </section>
+        <div class="section-bridge">
+          <p>
+            当热点范围收缩到几台机器之后，还需要回到单机曲线确认它们的真实形态。最后一部分补充研究问题、设计取舍和数据处理方式，让图表与方法对应起来。
+          </p>
+        </div>
 
         <section id="methodology" class="section">
           <div class="section-heading">
-            <div class="eyebrow">Methodology</div>
-            <h2>问题定义、设计决策与数据来源</h2>
-            <p class="section-copy">
-              这部分直接对应课程作业文档要求：研究问题、设计权衡、外部引用与开发流程都写在页面里，而不是单独丢在 README。
-            </p>
+            <div class="eyebrow">方法说明</div>
+            <h2>问题、方法与数据来源</h2>
           </div>
           <article class="method-article" id="method-grid"></article>
         </section>
@@ -772,7 +776,7 @@ class ClusterPulseApp {
     const windowTitle = this.root.querySelector<HTMLElement>('#window-title');
     const windowCopy = this.root.querySelector<HTMLElement>('#window-copy');
     if (heatmapTitle && windowTitle && windowCopy) {
-      heatmapTitle.textContent = 'Loading machine-grid.bin…';
+      heatmapTitle.textContent = '正在加载热力图数据…';
       windowTitle.textContent = '正在拉取压缩矩阵';
       windowCopy.textContent = '首次进入主图时延迟加载二进制矩阵，以保证 GitHub Pages 首屏体积可控。';
     }
@@ -870,7 +874,7 @@ class ClusterPulseApp {
               class="metric-button"
               data-metric="${metric.id}"
             >
-              ${metric.label}
+              ${METRIC_META[metric.id].label}
             </button>
           `
         )
@@ -899,19 +903,19 @@ class ClusterPulseApp {
     const leadHighlight = this.data.hotspots.highlights[0];
     heroStats.innerHTML = [
       {
-        label: 'Machines',
+        label: '机器数',
         value: formatNumber(this.data.manifest.machineCount)
       },
       {
-        label: 'Failure Domains',
+        label: '故障域',
         value: formatNumber(this.data.manifest.failureDomainCount)
       },
       {
-        label: 'Rows Processed',
+        label: '处理记录',
         value: formatNumber(this.data.manifest.usageRowCount)
       },
       {
-        label: 'Published Bundle',
+        label: '发布数据',
         value: this.data.manifest.subsetMode === 'sample' ? '真实子集' : '全量聚合'
       }
     ]
@@ -943,11 +947,11 @@ class ClusterPulseApp {
       .map(
         (metric) => `
           <div class="mini-metric-card">
-            <span class="label">${metric.label}</span>
+            <span class="label">${METRIC_META[metric.id].label}</span>
             <svg data-ribbon="${metric.id}" viewBox="0 0 220 48" preserveAspectRatio="none"></svg>
             <div class="metric-summary-value">${formatPercent(
-              d3.max(this.data.summary.metrics[metric.id].p99) ?? 0
-            )} P99 Peak</div>
+          d3.max(this.data.summary.metrics[metric.id].p99) ?? 0
+        )} P99 峰值</div>
           </div>
         `
       )
@@ -1001,7 +1005,7 @@ class ClusterPulseApp {
       .map(
         (highlight) => `
           <a class="highlight-card" href="#pulse" data-hotspot-id="${highlight.id}">
-            <span class="label">${METRIC_META[highlight.metricId].label} hotspot</span>
+            <span class="label">${METRIC_META[highlight.metricId].label} 热点</span>
             <strong>${highlight.title}</strong>
             <p>${highlight.summary}</p>
           </a>
@@ -1084,10 +1088,10 @@ class ClusterPulseApp {
     const visibleMachineCount = this.getVisibleMachineIndices().length;
     const filteredMachineCount = this.getFilteredMachineIndices().length;
     const badges = [
-      `Metric: ${METRIC_META[this.state.metricId].label}`,
-      `Window: ${formatWindow(this.state.timeWindow, this.data.manifest.binSeconds)}`,
-      `Machines: ${filteredMachineCount}/${visibleMachineCount}`,
-      `Filter: ${this.state.activeDomainId ? `FD-${this.state.activeDomainId}` : 'All domains'}`
+      `指标：${METRIC_META[this.state.metricId].label}`,
+      `窗口：${formatWindow(this.state.timeWindow, this.data.manifest.binSeconds)}`,
+      `机器：${filteredMachineCount}/${visibleMachineCount}`,
+      `范围：${this.state.activeDomainId ? `FD-${this.state.activeDomainId}` : '全部故障域'}`
     ];
     container.innerHTML = badges.map((text) => `<span>${text}</span>`).join('');
   }
@@ -1367,8 +1371,8 @@ class ClusterPulseApp {
     }
     const rowPositions = hasMachineFilter
       ? filteredMachineIndices
-          .map((machineIndex) => visibleMachineIndices.indexOf(machineIndex))
-          .filter((rowIndex) => rowIndex >= 0)
+        .map((machineIndex) => visibleMachineIndices.indexOf(machineIndex))
+        .filter((rowIndex) => rowIndex >= 0)
       : [0, visibleMachineIndices.length - 1];
     if (!rowPositions.length) {
       return null;
@@ -1548,7 +1552,7 @@ class ClusterPulseApp {
       .attr('text-anchor', 'end')
       .attr('fill', 'var(--muted)')
       .attr('font-size', 12)
-      .text('CPU mean');
+      .text('CPU 均值');
 
     svg
       .append('text')
@@ -1556,7 +1560,7 @@ class ClusterPulseApp {
       .attr('y', 18)
       .attr('fill', 'var(--muted)')
       .attr('font-size', 12)
-      .text('Memory mean');
+      .text('内存均值');
 
     svg
       .append('g')
@@ -1577,7 +1581,7 @@ class ClusterPulseApp {
           event.clientY,
           `<strong>${datum.machine.machineId}</strong><br />FD-${datum.domainId}<br />CPU ${formatPercent(
             datum.averages.cpu
-          )} · Memory ${formatPercent(datum.averages.memory)}<br />${METRIC_META[this.state.metricId].label} peak ${formatPercent(
+          )} · 内存 ${formatPercent(datum.averages.memory)}<br />${METRIC_META[this.state.metricId].label} 峰值 ${formatPercent(
             datum.peaks[this.state.metricId]
           )}`
         );
@@ -1588,7 +1592,7 @@ class ClusterPulseApp {
         this.renderInteractiveViews();
       });
 
-    caption.textContent = `${stats.length} 台机器参与当前窗口的联动分析，圆点大小编码 ${METRIC_META[this.state.metricId].label} 峰值`;
+    caption.textContent = `${stats.length} 台机器参与当前窗口分析，圆点大小表示 ${METRIC_META[this.state.metricId].label} 峰值`;
   }
 
   private renderDomainBars(machineStats: WindowMachineStat[]): void {
@@ -1638,9 +1642,9 @@ class ClusterPulseApp {
         this.showTooltip(
           event.clientX,
           event.clientY,
-          `<strong>FD-${datum.domain.domainId}</strong><br />Current ${METRIC_META[this.state.metricId].label} peak ${formatPercent(
+          `<strong>FD-${datum.domain.domainId}</strong><br />当前 ${METRIC_META[this.state.metricId].label} 峰值 ${formatPercent(
             datum.peak
-          )}<br />Machines ${datum.machineCount}`
+          )}<br />机器数 ${datum.machineCount}`
         );
       })
       .on('mouseleave', () => this.hideTooltip())
@@ -1713,7 +1717,7 @@ class ClusterPulseApp {
     this.state.selectedMachineIndex = machine.index;
 
     title.textContent = `${machine.machineId} · FD-${machine.failureDomain1}`;
-    subtitle.textContent = `CPU ${machine.cpuNum} cores · Memory ${machine.memSize} normalized units · status ${machine.status}`;
+    subtitle.textContent = `CPU ${machine.cpuNum} 核 · 内存 ${machine.memSize} 归一化单位 · 状态 ${machine.status}`;
 
     container.innerHTML = METRIC_ORDER.map((metricId) => `<div class="small-metric"><span class="label">${METRIC_META[metricId].label}</span><svg data-machine-metric="${metricId}"></svg></div>`).join('');
 
