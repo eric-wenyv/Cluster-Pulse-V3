@@ -1,12 +1,14 @@
 import * as d3 from 'd3';
-import { METRIC_META, METRIC_ORDER } from './constants';
+import { METRIC_META } from './constants';
 import { loadGrid } from './data';
+import { renderHeatmapFilterButton, renderMetricButtons, renderSelectionBadges } from './renderers/controls-renderer';
 import { renderDomainBars, renderMachineDetail, renderRankingTable, renderScatter } from './renderers/explorer-renderer';
 import { drawHeatmapBase, drawHeatmapOverlay, locateHeatmapCell, renderBrushChart, renderWindowCard, requestOverlayDraw } from './renderers/heatmap-renderer';
 import { renderHero, renderSummaryRibbons } from './renderers/overview-renderer';
+import { getFilteredMachineIndices, getMachineFilterKey, getVisibleMachineIndices, getWindowMachineStats, normalizeMachineFilter } from './selectors';
 import { renderMethodologyMarkup, renderShell } from './templates';
 import type { AppData, AppState, GridData, Hotspot, MetricId, WindowMachineStat } from './types';
-import { clampWindow, computeAverage, formatPercent, formatWindow, gridValue, isFullWindow } from './utils';
+import { clampWindow, formatPercent, formatWindow, gridValue, isFullWindow } from './utils';
 
 export type { AppData } from './types';
 export { loadInitialData } from './data';
@@ -335,13 +337,7 @@ export class ClusterPulseApp {
   }
 
   private renderHeatmapFilterButton(): void {
-    const button = this.root.querySelector<HTMLButtonElement>('#clear-heatmap-filter');
-    const showAllMachinesButton = this.root.querySelector<HTMLButtonElement>('#show-all-machines');
-    if (!button || !showAllMachinesButton) {
-      return;
-    }
-    button.disabled = !this.hasActiveHeatmapFilter();
-    showAllMachinesButton.disabled = !this.state.activeDomainId && !this.state.machineFilterIndices?.length;
+    renderHeatmapFilterButton(this.root, this.hasActiveHeatmapFilter(), Boolean(this.state.activeDomainId || this.state.machineFilterIndices?.length));
   }
 
   private applyHeatmapBrush(
@@ -482,37 +478,7 @@ export class ClusterPulseApp {
   }
 
   private renderMetricButtons(): void {
-    const container = this.root.querySelector<HTMLDivElement>('#metric-buttons');
-    const help = this.root.querySelector<HTMLDivElement>('#metric-help');
-    const legend = this.root.querySelector<HTMLDivElement>('#legend-gradient');
-    if (!container || !help || !legend) {
-      return;
-    }
-
-    if (!container.childElementCount) {
-      container.innerHTML = this.data.manifest.metrics
-        .map(
-          (metric) => `
-            <button
-              type="button"
-              class="metric-button"
-              data-metric="${metric.id}"
-            >
-              ${METRIC_META[metric.id].label}
-            </button>
-          `
-        )
-        .join('');
-    }
-
-    container.querySelectorAll<HTMLButtonElement>('button[data-metric]').forEach((button) => {
-      button.classList.toggle('is-active', button.dataset.metric === this.state.metricId);
-    });
-
-    help.textContent = METRIC_META[this.state.metricId].description;
-    legend.style.background = `linear-gradient(90deg, ${Array.from({ length: 12 }, (_, index) =>
-      METRIC_META[this.state.metricId].interpolator(index / 11)
-    ).join(', ')})`;
+    renderMetricButtons(this.root, this.data, this.state);
   }
 
   private renderHero(): void {
@@ -554,195 +520,48 @@ export class ClusterPulseApp {
   }
 
   private getMachineFilterKey(): string {
-    return this.state.machineFilterIndices?.join(',') ?? 'all';
+    return getMachineFilterKey(this.state.machineFilterIndices);
   }
 
   private normalizeMachineFilter(): void {
-    if (!this.state.machineFilterIndices?.length) {
-      this.state.machineFilterIndices = null;
-      return;
-    }
-    const visibleMachineSet = new Set(this.getVisibleMachineIndices());
-    const normalized = this.state.machineFilterIndices.filter((machineIndex) => visibleMachineSet.has(machineIndex));
-    if (!normalized.length || normalized.length === this.getVisibleMachineIndices().length) {
-      this.state.machineFilterIndices = null;
-      return;
-    }
-    this.state.machineFilterIndices = normalized;
+    this.state.machineFilterIndices = normalizeMachineFilter(this.state.machineFilterIndices, this.getVisibleMachineIndices());
   }
 
   private getFilteredMachineIndices(): number[] {
-    const visibleMachineIndices = this.getVisibleMachineIndices();
-    if (!this.state.machineFilterIndices?.length) {
-      return visibleMachineIndices;
-    }
-    const visibleMachineSet = new Set(visibleMachineIndices);
-    const filtered = this.state.machineFilterIndices.filter((machineIndex) => visibleMachineSet.has(machineIndex));
-    return filtered.length ? filtered : visibleMachineIndices;
+    return getFilteredMachineIndices(this.state.machineFilterIndices, this.getVisibleMachineIndices());
   }
 
   private renderSelectionBadges(): void {
-    const container = this.root.querySelector<HTMLDivElement>('#selection-badges');
-    if (!container) {
-      return;
-    }
-    const visibleMachineCount = this.getVisibleMachineIndices().length;
-    const filteredMachineCount = this.getFilteredMachineIndices().length;
-    const badges = [
-      `指标：${METRIC_META[this.state.metricId].label}`,
-      `窗口：${formatWindow(this.state.timeWindow, this.data.manifest.binSeconds)}`,
-      `机器：${filteredMachineCount}/${visibleMachineCount}`,
-      `范围：${this.state.activeDomainId ? `FD-${this.state.activeDomainId}` : '全部故障域'}`
-    ];
-    container.innerHTML = badges.map((text) => `<span>${text}</span>`).join('');
+    renderSelectionBadges(this.root, this.data, this.state, this.getVisibleMachineIndices().length, this.getFilteredMachineIndices().length);
   }
 
   private getVisibleMachineIndices(): number[] {
-    const cacheKey = `${this.state.metricId}:${this.state.activeDomainId ?? 'all'}`;
-    if (this.cachedVisibleIndicesKey === cacheKey) {
-      return this.cachedVisibleMachineIndices;
-    }
-    this.cachedVisibleIndicesKey = cacheKey;
-    let allVisible = !this.state.activeDomainId
-      ? this.data.machines.machines.map((machine) => machine.index)
-      : (this.data.domains.domains.find((domain) => domain.domainId === this.state.activeDomainId)?.machineIndices ?? []);
-
-    const metricPeaks = this.getMachineMetricPeaks()[this.state.metricId];
-    allVisible = [...allVisible].sort((left, right) => {
-      const leftPeak = metricPeaks[left] ?? 0;
-      const rightPeak = metricPeaks[right] ?? 0;
-      if (rightPeak !== leftPeak) {
-        return rightPeak - leftPeak;
-      }
-      const leftScore = this.data.machines.machines[left]?.globalPeakScore ?? 0;
-      const rightScore = this.data.machines.machines[right]?.globalPeakScore ?? 0;
-      if (rightScore !== leftScore) {
-        return rightScore - leftScore;
-      }
-      return left - right;
+    const result = getVisibleMachineIndices({
+      data: this.data,
+      state: this.state,
+      cachedVisibleIndicesKey: this.cachedVisibleIndicesKey,
+      cachedVisibleMachineIndices: this.cachedVisibleMachineIndices,
+      machineMetricPeaks: this.machineMetricPeaks,
+      grid: this.grid
     });
-
-    if (allVisible.length > 48) {
-      this.cachedVisibleMachineIndices = allVisible.slice(0, 48);
-      return this.cachedVisibleMachineIndices;
-    }
-    this.cachedVisibleMachineIndices = allVisible;
+    this.cachedVisibleIndicesKey = result.cacheKey;
+    this.cachedVisibleMachineIndices = result.visibleMachineIndices;
+    this.machineMetricPeaks = result.machineMetricPeaks;
     return this.cachedVisibleMachineIndices;
   }
 
-  private getMachineMetricPeaks(): Record<MetricId, number[]> {
-    if (this.machineMetricPeaks) {
-      return this.machineMetricPeaks;
-    }
-    const machineCount = this.data.manifest.machineCount;
-    const peaks: Record<MetricId, number[]> = {
-      cpu: new Array(machineCount).fill(0),
-      memory: new Array(machineCount).fill(0),
-      network: new Array(machineCount).fill(0),
-      disk: new Array(machineCount).fill(0)
-    };
-    if (!this.grid) {
-      return peaks;
-    }
-    METRIC_ORDER.forEach((metricId) => {
-      for (let machineIndex = 0; machineIndex < machineCount; machineIndex += 1) {
-        let peak = 0;
-        for (let binIndex = 0; binIndex < this.data.manifest.binCount; binIndex += 1) {
-          peak = Math.max(peak, gridValue(this.grid as GridData, metricId, binIndex, machineIndex) ?? 0);
-        }
-        peaks[metricId][machineIndex] = peak;
-      }
-    });
-    this.machineMetricPeaks = peaks;
-    return peaks;
-  }
-
   private getWindowMachineStats(): WindowMachineStat[] {
-    if (!this.grid) {
-      return [];
-    }
-    const cacheKey = `${this.state.metricId}:${this.state.activeDomainId ?? 'all'}:${this.state.timeWindow[0]}:${this.state.timeWindow[1]}:${this.getMachineFilterKey()}`;
-    if (this.cachedWindowStatsKey === cacheKey) {
-      return this.cachedWindowStats;
-    }
-    const [startBin, endBin] = this.state.timeWindow;
-    const visibleIndices = new Set(this.getFilteredMachineIndices());
-    const stats: WindowMachineStat[] = [];
-
-    this.data.machines.machines.forEach((machine) => {
-      if (!visibleIndices.has(machine.index)) {
-        return;
-      }
-      const valuesByMetric: Record<MetricId, number[]> = {
-        cpu: [],
-        memory: [],
-        network: [],
-        disk: []
-      };
-      const peaksByMetric: Record<MetricId, number> = {
-        cpu: 0,
-        memory: 0,
-        network: 0,
-        disk: 0
-      };
-      let peakMetric: MetricId = 'cpu';
-      let peakValue = -1;
-
-      for (let binIndex = startBin; binIndex <= endBin; binIndex += 1) {
-        METRIC_ORDER.forEach((metricId) => {
-          const value = gridValue(this.grid as GridData, metricId, binIndex, machine.index);
-          if (value === null) {
-            return;
-          }
-          valuesByMetric[metricId].push(value);
-          peaksByMetric[metricId] = Math.max(peaksByMetric[metricId], value);
-          if (value > peakValue) {
-            peakValue = value;
-            peakMetric = metricId;
-          }
-        });
-      }
-
-      const allCounts = METRIC_ORDER.reduce((sum, metricId) => sum + valuesByMetric[metricId].length, 0);
-      if (allCounts === 0) {
-        return;
-      }
-      stats.push({
-        machineIndex: machine.index,
-        machine,
-        domainId: machine.failureDomain1,
-        averages: {
-          cpu: computeAverage(valuesByMetric.cpu),
-          memory: computeAverage(valuesByMetric.memory),
-          network: computeAverage(valuesByMetric.network),
-          disk: computeAverage(valuesByMetric.disk)
-        },
-        counts: {
-          cpu: valuesByMetric.cpu.length,
-          memory: valuesByMetric.memory.length,
-          network: valuesByMetric.network.length,
-          disk: valuesByMetric.disk.length
-        },
-        peaks: peaksByMetric,
-        peakMetric,
-        windowPeak: Math.max(peakValue, 0),
-        peakValue
-      });
+    const result = getWindowMachineStats({
+      data: this.data,
+      state: this.state,
+      grid: this.grid,
+      filteredMachineIndices: this.getFilteredMachineIndices(),
+      cachedWindowStatsKey: this.cachedWindowStatsKey,
+      cachedWindowStats: this.cachedWindowStats,
+      machineFilterKey: this.getMachineFilterKey()
     });
-
-    this.cachedWindowStatsKey = cacheKey;
-    const selectedMetric = this.state.metricId;
-    this.cachedWindowStats = stats.sort((left, right) => {
-      const peakDelta = right.peaks[selectedMetric] - left.peaks[selectedMetric];
-      if (peakDelta !== 0) {
-        return peakDelta;
-      }
-      const averageDelta = right.averages[selectedMetric] - left.averages[selectedMetric];
-      if (averageDelta !== 0) {
-        return averageDelta;
-      }
-      return right.windowPeak - left.windowPeak;
-    });
+    this.cachedWindowStatsKey = result.cacheKey;
+    this.cachedWindowStats = result.stats;
     return this.cachedWindowStats;
   }
 
