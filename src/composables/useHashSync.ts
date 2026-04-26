@@ -113,19 +113,36 @@ export function useHashSync(): void {
     applyFromHash();
   }
 
+  let stopDataWatch: (() => void) | null = null;
   let stopWatch: (() => void) | null = null;
 
   onMounted(() => {
-    applyFromHash();
-    stopWatch = watch(
-      () => [store.metricId, store.timeWindow[0], store.timeWindow[1], store.activeDomainId, store.selectedMachineIndex] as const,
-      () => {
+    window.addEventListener('hashchange', onHashChange);
+
+    // Delay the initial hash application and write loop until data is loaded.
+    // This ensures deep-link parameters are applied before any hash write,
+    // and avoids overwriting the incoming URL hash with defaults.
+    stopDataWatch = watch(
+      () => store.data,
+      (data) => {
+        if (!data) {
+          return;
+        }
+        stopDataWatch?.();
+        stopDataWatch = null;
+        applyFromHash();
+        stopWatch = watch(
+          () =>
+            [store.metricId, store.timeWindow[0], store.timeWindow[1], store.activeDomainId, store.selectedMachineIndex] as const,
+          () => {
+            scheduleWrite();
+          },
+          { flush: 'post' }
+        );
         scheduleWrite();
       },
-      { flush: 'post' }
+      { immediate: true }
     );
-    scheduleWrite();
-    window.addEventListener('hashchange', onHashChange);
   });
 
   onUnmounted(() => {
@@ -133,6 +150,7 @@ export function useHashSync(): void {
       window.cancelAnimationFrame(writeFrame);
       writeFrame = 0;
     }
+    stopDataWatch?.();
     stopWatch?.();
     window.removeEventListener('hashchange', onHashChange);
   });
