@@ -56,9 +56,12 @@ download_archive() {
   curl -L -C - --fail --output "${file_path}" "${BASE_URL}/${file_name}"
   if [[ -n "${expected_sha}" ]]; then
     verify_sha "${file_path}" "${expected_sha}"
-  elif [[ ! -s "${file_path}" ]]; then
-    echo "Downloaded file is empty: ${file_path}" >&2
-    exit 1
+  else
+    echo "WARNING: No SHA256 checksum provided for ${file_name}; skipping integrity verification." >&2
+    if [[ ! -s "${file_path}" ]]; then
+      echo "Downloaded file is empty: ${file_path}" >&2
+      exit 1
+    fi
   fi
 }
 
