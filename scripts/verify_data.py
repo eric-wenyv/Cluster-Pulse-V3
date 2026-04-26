@@ -13,6 +13,9 @@ REQUIRED_FILES = [
     "hotspots.json",
     "domains.json",
     "machine-grid.bin",
+    "containers_per_machine_per_bin.bin",
+    "batch_load_per_machine_per_bin.bin",
+    "batch_task_dag.json",
 ]
 
 
@@ -39,14 +42,38 @@ def main() -> None:
     domains = load_json(data_dir / "domains.json")["domains"]
     summary = load_json(data_dir / "cluster-summary.json")
     hotspots = load_json(data_dir / "hotspots.json")["highlights"]
-    grid = (data_dir / "machine-grid.bin").read_bytes()
+    artifacts = manifest.get(
+        "artifacts",
+        {
+            "machineGrid": "machine-grid.bin",
+            "containerGrid": "containers_per_machine_per_bin.bin",
+            "batchGrid": "batch_load_per_machine_per_bin.bin",
+            "batchTaskDag": "batch_task_dag.json",
+        },
+    )
+    for artifact_name, file_name in artifacts.items():
+        if not (data_dir / file_name).exists():
+            fail(f"Manifest artifact {artifact_name} points to missing file: {file_name}")
+
+    grid = (data_dir / artifacts["machineGrid"]).read_bytes()
+    container_grid = (data_dir / artifacts["containerGrid"]).read_bytes()
+    batch_grid = (data_dir / artifacts["batchGrid"]).read_bytes()
+    batch_task_dag = load_json(data_dir / artifacts["batchTaskDag"])
 
     machine_count = len(machines)
     bin_count = manifest["binCount"]
     metric_count = len(manifest["metrics"])
     expected_length = machine_count * bin_count * metric_count
     if len(grid) != expected_length:
-        fail(f"machine-grid.bin length mismatch: expected {expected_length}, got {len(grid)}")
+        fail(f"{artifacts['machineGrid']} length mismatch: expected {expected_length}, got {len(grid)}")
+
+    expected_container_length = machine_count * bin_count * 2
+    if len(container_grid) != expected_container_length:
+        fail(f"{artifacts['containerGrid']} length mismatch: expected {expected_container_length}, got {len(container_grid)}")
+
+    expected_batch_length = machine_count * bin_count * metric_count
+    if len(batch_grid) != expected_batch_length:
+        fail(f"{artifacts['batchGrid']} length mismatch: expected {expected_batch_length}, got {len(batch_grid)}")
 
     if manifest["machineCount"] != machine_count:
         fail("manifest.machineCount does not match machines.json")
@@ -78,7 +105,28 @@ def main() -> None:
     if not hotspots:
         fail("Expected at least one hotspot highlight")
 
-    print(f"Verified {data_dir}: {machine_count} machines, {len(domains)} domains, {len(hotspots)} hotspots")
+    dag_nodes = batch_task_dag.get("nodes", [])
+    dag_edges = batch_task_dag.get("edges", [])
+    if len(dag_nodes) > 200:
+        fail(f"batch_task_dag.json has too many nodes: {len(dag_nodes)}")
+    dag_node_ids = set()
+    for node in dag_nodes:
+        node_id = node.get("id")
+        if not isinstance(node_id, str) or not node_id.strip():
+            fail(f"Invalid DAG node id: {node_id!r}")
+        if node_id in dag_node_ids:
+            fail(f"Duplicate DAG node id: {node_id}")
+        dag_node_ids.add(node_id)
+        if not (0 <= node["startBin"] <= node["endBin"] < bin_count):
+            fail(f"Invalid DAG node time window: {node_id}")
+    for edge in dag_edges:
+        if edge.get("source") not in dag_node_ids or edge.get("target") not in dag_node_ids:
+            fail(f"Invalid DAG edge endpoint: {edge}")
+
+    print(
+        f"Verified {data_dir}: {machine_count} machines, {len(domains)} domains, "
+        f"{len(hotspots)} hotspots, {len(dag_nodes)} DAG nodes"
+    )
 
 
 if __name__ == "__main__":
