@@ -65,15 +65,15 @@ def main() -> None:
     metric_count = len(manifest["metrics"])
     expected_length = machine_count * bin_count * metric_count
     if len(grid) != expected_length:
-        fail(f"machine-grid.bin length mismatch: expected {expected_length}, got {len(grid)}")
+        fail(f"{artifacts['machineGrid']} length mismatch: expected {expected_length}, got {len(grid)}")
 
     expected_container_length = machine_count * bin_count * 2
     if len(container_grid) != expected_container_length:
-        fail(f"containers_per_machine_per_bin.bin length mismatch: expected {expected_container_length}, got {len(container_grid)}")
+        fail(f"{artifacts['containerGrid']} length mismatch: expected {expected_container_length}, got {len(container_grid)}")
 
     expected_batch_length = machine_count * bin_count * metric_count
     if len(batch_grid) != expected_batch_length:
-        fail(f"batch_load_per_machine_per_bin.bin length mismatch: expected {expected_batch_length}, got {len(batch_grid)}")
+        fail(f"{artifacts['batchGrid']} length mismatch: expected {expected_batch_length}, got {len(batch_grid)}")
 
     if manifest["machineCount"] != machine_count:
         fail("manifest.machineCount does not match machines.json")
