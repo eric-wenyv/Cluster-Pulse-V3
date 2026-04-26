@@ -109,10 +109,16 @@ def main() -> None:
     dag_edges = batch_task_dag.get("edges", [])
     if len(dag_nodes) > 200:
         fail(f"batch_task_dag.json has too many nodes: {len(dag_nodes)}")
-    dag_node_ids = {node.get("id") for node in dag_nodes}
+    dag_node_ids = set()
     for node in dag_nodes:
+        node_id = node.get("id")
+        if not isinstance(node_id, str) or not node_id.strip():
+            fail(f"Invalid DAG node id: {node_id!r}")
+        if node_id in dag_node_ids:
+            fail(f"Duplicate DAG node id: {node_id}")
+        dag_node_ids.add(node_id)
         if not (0 <= node["startBin"] <= node["endBin"] < bin_count):
-            fail(f"Invalid DAG node time window: {node.get('id')}")
+            fail(f"Invalid DAG node time window: {node_id}")
     for edge in dag_edges:
         if edge.get("source") not in dag_node_ids or edge.get("target") not in dag_node_ids:
             fail(f"Invalid DAG edge endpoint: {edge}")
