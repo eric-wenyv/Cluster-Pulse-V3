@@ -6,3 +6,5 @@ data/raw-sample/
 *.pyc
 __pycache__/
 docs/
+public/data/*
+!public/data/.gitkeep
