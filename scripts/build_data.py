@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import math
+import struct
 import tarfile
 from array import array
 from collections import defaultdict
@@ -13,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from heapq import heappush, heapreplace
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 METRICS = ("cpu", "memory", "network", "disk")
 METRIC_LABELS = {
@@ -30,6 +31,13 @@ METRIC_DESCRIPTIONS = {
 }
 MISSING_VALUE = 255
 HIGHLIGHT_WINDOW_RADIUS = 4
+ARTIFACTS = {
+    "machineGrid": "machine-grid.bin",
+    "containerGrid": "containers_per_machine_per_bin.bin",
+    "batchGrid": "batch_load_per_machine_per_bin.bin",
+    "batchTaskDag": "batch_task_dag.json",
+}
+BATCH_DAG_NODE_LIMIT = 200
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,21 +116,46 @@ def locate_input_file(root: Path, candidates: Sequence[str]) -> Optional[Path]:
     return None
 
 
-def resolve_sources(primary_root: Path, fallback_root: Path) -> Tuple[Path, Path, str]:
-    roots = [primary_root, fallback_root]
-    meta_candidates = ("machine_meta.csv", "machine_meta.tar.gz")
-    usage_candidates = ("machine_usage.csv", "machine_usage_sample.csv", "machine_usage.tar.gz")
+def resolve_source_file(primary_root: Path, fallback_root: Path, candidates: Sequence[str]) -> Optional[Path]:
+    for root in (primary_root, fallback_root):
+        file_path = locate_input_file(root, candidates)
+        if file_path:
+            return file_path
+    return None
 
-    for root in roots:
-        meta_path = locate_input_file(root, meta_candidates)
-        usage_path = locate_input_file(root, usage_candidates)
-        if meta_path and usage_path:
-            subset_mode = "sample" if "sample" in usage_path.name or root == fallback_root else "full"
-            return meta_path, usage_path, subset_mode
 
-    raise FileNotFoundError(
-        f"Unable to locate machine_meta and machine_usage under {primary_root} or {fallback_root}"
-    )
+def is_fallback_path(path: Path, fallback_root: Path) -> bool:
+    try:
+        path.resolve().relative_to(fallback_root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_sources(primary_root: Path, fallback_root: Path) -> Tuple[Dict[str, Optional[Path]], str]:
+    candidates = {
+        "machine_meta": ("machine_meta.csv", "machine_meta.tar.gz"),
+        "machine_usage": ("machine_usage.csv", "machine_usage_sample.csv", "machine_usage.tar.gz"),
+        "container_meta": ("container_meta.csv", "container_meta_sample.csv", "container_meta.tar.gz"),
+        "container_usage": ("container_usage.csv", "container_usage_sample.csv", "container_usage.tar.gz"),
+        "batch_task": ("batch_task.csv", "batch_task_sample.csv", "batch_task.tar.gz"),
+        "batch_instance": ("batch_instance.csv", "batch_instance_sample.csv", "batch_instance.tar.gz"),
+    }
+    sources = {
+        source_name: resolve_source_file(primary_root, fallback_root, source_candidates)
+        for source_name, source_candidates in candidates.items()
+    }
+    if not sources["machine_meta"] or not sources["machine_usage"]:
+        raise FileNotFoundError(
+            f"Unable to locate machine_meta and machine_usage under {primary_root} or {fallback_root}"
+        )
+
+    subset_mode = "full"
+    for source_path in sources.values():
+        if source_path and ("sample" in source_path.name or is_fallback_path(source_path, fallback_root)):
+            subset_mode = "sample"
+            break
+    return sources, subset_mode
 
 
 def parse_int(value: str) -> int:
@@ -370,6 +403,254 @@ def build_metric_grid(
     return output
 
 
+def load_container_meta(container_meta_path: Optional[Path]) -> Tuple[Dict[str, dict], int]:
+    if container_meta_path is None:
+        return {}, 0
+    records: Dict[str, dict] = {}
+    row_count = 0
+    with open_csv_source(container_meta_path) as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if len(row) < 8:
+                continue
+            container_id = row[0].strip()
+            if not container_id:
+                continue
+            row_count += 1
+            timestamp = parse_int(row[2])
+            existing = records.get(container_id)
+            if existing and timestamp < existing["time_stamp"]:
+                continue
+            records[container_id] = {
+                "container_id": container_id,
+                "machine_id": row[1].strip(),
+                "time_stamp": timestamp,
+                "app_du": row[3].strip(),
+                "status": row[4].strip(),
+                "cpu_request": parse_int(row[5]),
+                "cpu_limit": parse_int(row[6]),
+                "mem_size": float(row[7]),
+            }
+    return records, row_count
+
+
+def aggregate_container_counts(
+    container_usage_path: Optional[Path],
+    machine_lookup: Dict[str, int],
+    bin_count: int,
+    bin_seconds: int,
+) -> Tuple[array, int]:
+    machine_count = len(machine_lookup)
+    cell_count = machine_count * bin_count
+    counts = array("H", [0]) * cell_count
+    row_count = 0
+    if container_usage_path is None:
+        return counts, row_count
+
+    cell_containers: Dict[int, Set[str]] = defaultdict(set)
+    with open_csv_source(container_usage_path) as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if len(row) < 3:
+                continue
+            container_id = row[0].strip()
+            machine_index = machine_lookup.get(row[1].strip())
+            if not container_id or machine_index is None:
+                continue
+            timestamp = parse_int(row[2])
+            if timestamp < 0:
+                continue
+            bin_index = timestamp // bin_seconds
+            if bin_index < 0 or bin_index >= bin_count:
+                continue
+            row_count += 1
+            cell_containers[machine_index * bin_count + bin_index].add(container_id)
+
+    for cell_index, container_ids in cell_containers.items():
+        counts[cell_index] = min(len(container_ids), 65535)
+    return counts, row_count
+
+
+def build_container_grid(container_counts: array, filtered_old_indices: List[int], bin_count: int) -> bytearray:
+    machine_count = len(filtered_old_indices)
+    output = bytearray(machine_count * bin_count * 2)
+    for bin_index in range(bin_count):
+        for new_index, old_index in enumerate(filtered_old_indices):
+            old_cell = old_index * bin_count + bin_index
+            output_offset = (bin_index * machine_count + new_index) * 2
+            struct.pack_into("<H", output, output_offset, container_counts[old_cell])
+    return output
+
+
+def load_batch_tasks(batch_task_path: Optional[Path], bin_count: int, bin_seconds: int) -> Tuple[Dict[Tuple[str, str], dict], int]:
+    if batch_task_path is None:
+        return {}, 0
+    tasks: Dict[Tuple[str, str], dict] = {}
+    row_count = 0
+    with open_csv_source(batch_task_path) as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if len(row) < 9:
+                continue
+            task_name = row[0].strip()
+            job_name = row[2].strip()
+            if not task_name or not job_name:
+                continue
+            start_time = parse_int(row[5])
+            end_time = parse_int(row[6])
+            if end_time < start_time:
+                end_time = start_time
+            start_bin = max(0, min(bin_count - 1, start_time // bin_seconds))
+            end_bin = max(start_bin, min(bin_count - 1, end_time // bin_seconds))
+            row_count += 1
+            tasks[(job_name, task_name)] = {
+                "task_name": task_name,
+                "job_name": job_name,
+                "instance_num": parse_int(row[1]),
+                "task_type": row[3].strip(),
+                "status": row[4].strip(),
+                "start_time": start_time,
+                "end_time": end_time,
+                "start_bin": start_bin,
+                "end_bin": end_bin,
+                "plan_cpu": float(row[7] or 0),
+                "plan_mem": float(row[8] or 0),
+            }
+    return tasks, row_count
+
+
+def add_weighted_interval(
+    totals: array,
+    cell_count: int,
+    machine_index: int,
+    bin_count: int,
+    bin_seconds: int,
+    start_time: int,
+    end_time: int,
+    cpu_value: Optional[float],
+    memory_value: Optional[float],
+) -> None:
+    if end_time < start_time:
+        end_time = start_time
+    end_exclusive = end_time + 1
+    start_bin = max(0, min(bin_count - 1, start_time // bin_seconds))
+    end_bin = max(start_bin, min(bin_count - 1, end_time // bin_seconds))
+    for bin_index in range(start_bin, end_bin + 1):
+        bin_start = bin_index * bin_seconds
+        bin_end = bin_start + bin_seconds
+        overlap = max(0, min(end_exclusive, bin_end) - max(start_time, bin_start))
+        if overlap <= 0:
+            continue
+        weight = overlap / bin_seconds
+        cell_index = machine_index * bin_count + bin_index
+        if cpu_value is not None:
+            totals[cell_index] += cpu_value * weight
+        if memory_value is not None:
+            totals[cell_count + cell_index] += memory_value * weight
+
+
+def aggregate_batch_instances(
+    batch_instance_path: Optional[Path],
+    machine_lookup: Dict[str, int],
+    bin_count: int,
+    bin_seconds: int,
+) -> Tuple[List[bytearray], int, Dict[Tuple[str, str], float]]:
+    machine_count = len(machine_lookup)
+    cell_count = machine_count * bin_count
+    totals = array("f", [0.0]) * (cell_count * 2)
+    task_scores: Dict[Tuple[str, str], float] = defaultdict(float)
+    row_count = 0
+    if batch_instance_path is None:
+        return [bytearray([MISSING_VALUE]) * cell_count for _ in METRICS], row_count, task_scores
+
+    with open_csv_source(batch_instance_path) as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if len(row) < 14:
+                continue
+            machine_index = machine_lookup.get(row[7].strip())
+            if machine_index is None:
+                continue
+            start_time = parse_int(row[5])
+            end_time = parse_int(row[6])
+            if start_time < 0:
+                continue
+            cpu_value = parse_metric_value(row[10])
+            memory_value = parse_metric_value(row[12])
+            if cpu_value is None and memory_value is None:
+                continue
+            row_count += 1
+            add_weighted_interval(totals, cell_count, machine_index, bin_count, bin_seconds, start_time, end_time, cpu_value, memory_value)
+            task_scores[(row[2].strip(), row[1].strip())] += (cpu_value or 0) + (memory_value or 0)
+
+    aggregated = [bytearray([MISSING_VALUE]) * cell_count for _ in METRICS]
+    for cell_index in range(cell_count):
+        cpu_total = totals[cell_index]
+        memory_total = totals[cell_count + cell_index]
+        if cpu_total > 0:
+            aggregated[0][cell_index] = max(0, min(100, int(round(cpu_total))))
+        if memory_total > 0:
+            aggregated[1][cell_index] = max(0, min(100, int(round(memory_total))))
+    return aggregated, row_count, task_scores
+
+
+def build_batch_grid(batch_aggregated: List[bytearray], filtered_old_indices: List[int], bin_count: int) -> bytearray:
+    machine_count = len(filtered_old_indices)
+    output = bytearray([MISSING_VALUE]) * (len(METRICS) * bin_count * machine_count)
+    for metric_index, metric_values in enumerate(batch_aggregated):
+        metric_offset = metric_index * bin_count * machine_count
+        for bin_index in range(bin_count):
+            bin_offset = metric_offset + bin_index * machine_count
+            for new_index, old_index in enumerate(filtered_old_indices):
+                old_cell = old_index * bin_count + bin_index
+                output[bin_offset + new_index] = metric_values[old_cell]
+    return output
+
+
+def build_batch_task_dag(
+    tasks: Dict[Tuple[str, str], dict],
+    task_scores: Dict[Tuple[str, str], float],
+    default_window: dict,
+) -> dict:
+    start_bin = default_window["startBin"]
+    end_bin = default_window["endBin"]
+    active_tasks = [
+        task
+        for key, task in tasks.items()
+        if task["start_bin"] <= end_bin and task["end_bin"] >= start_bin and task_scores.get(key, 0) > 0
+    ]
+    active_tasks.sort(key=lambda task: (-task_scores.get((task["job_name"], task["task_name"]), 0), task["start_bin"], task["job_name"], task["task_name"]))
+    selected = active_tasks[:BATCH_DAG_NODE_LIMIT]
+    selected.sort(key=lambda task: (task["start_bin"], task["job_name"], task["task_name"]))
+
+    nodes = []
+    max_score = max((task_scores.get((task["job_name"], task["task_name"]), 0) for task in selected), default=0)
+    for index, task in enumerate(selected):
+        score = task_scores.get((task["job_name"], task["task_name"]), 0)
+        x = 0.0 if end_bin == start_bin else (task["start_bin"] - start_bin) / max(1, end_bin - start_bin)
+        y = 0.5 if len(selected) <= 1 else index / (len(selected) - 1)
+        nodes.append(
+            {
+                "id": f"{task['job_name']}:{task['task_name']}",
+                "jobName": task["job_name"],
+                "taskName": task["task_name"],
+                "type": task["task_type"],
+                "startBin": task["start_bin"],
+                "endBin": task["end_bin"],
+                "x": round_float(max(0.0, min(1.0, x)), 4),
+                "y": round_float(y, 4),
+                "resourceScore": round_float(score / max_score if max_score else 0.0, 4),
+            }
+        )
+
+    return {
+        "window": {"startBin": start_bin, "endBin": end_bin},
+        "nodes": nodes,
+        "edges": [],
+        "notes": ["DAG edge parsing is unavailable for ambiguous task_name formats; edges are intentionally empty."],
+    }
+
+
 def build_cluster_summary(
     aggregated: List[bytearray],
     filtered_old_indices: List[int],
@@ -493,6 +774,10 @@ def build_manifest(
     output_root: Path,
     subset_mode: str,
     row_count: int,
+    container_meta_row_count: int,
+    container_usage_row_count: int,
+    batch_task_row_count: int,
+    batch_instance_row_count: int,
     machines_payload: List[dict],
     domain_to_indices: Dict[str, List[int]],
     bin_seconds: int,
@@ -506,6 +791,10 @@ def build_manifest(
         "outputRoot": str(output_root),
         "subsetMode": subset_mode,
         "usageRowCount": row_count,
+        "containerMetaRowCount": container_meta_row_count,
+        "containerRowCount": container_usage_row_count,
+        "batchTaskRowCount": batch_task_row_count,
+        "batchInstanceRowCount": batch_instance_row_count,
         "machineCount": len(machines_payload),
         "failureDomainCount": len(domain_to_indices),
         "binSeconds": bin_seconds,
@@ -521,10 +810,13 @@ def build_manifest(
             }
             for metric_id in METRICS
         ],
+        "artifacts": ARTIFACTS,
         "defaultWindow": default_window,
         "notes": [
             "GitHub Pages 发布的是基于真实 Alibaba 2018 trace 的静态聚合结果。",
             "如果当前数据包由 sample 模式生成，则 machine_usage 来自官方压缩文件的流式真实子集。",
+            "batch_load_per_machine_per_bin.bin 使用 batch_instance 的 CPU/MEM 字段聚合；network/disk 在原始表中不存在，使用缺失值 255。",
+            "batch_task_dag.json 采用确定性坐标；当 task_name 依赖关系无法可靠解析时，edges 保持为空。",
             "完整数据处理可通过 scripts/download_alibaba.sh full 与 npm run data 重新生成。",
         ],
         "sources": {
@@ -547,8 +839,13 @@ def main() -> None:
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    meta_path, usage_path, subset_mode = resolve_sources(input_root, fallback_root)
+    sources, subset_mode = resolve_sources(input_root, fallback_root)
     bin_count = args.period_seconds // args.bin_seconds
+
+    meta_path = sources["machine_meta"]
+    usage_path = sources["machine_usage"]
+    if meta_path is None or usage_path is None:
+        raise RuntimeError("machine_meta and machine_usage are required.")
 
     meta_records = load_machine_meta(meta_path)
     machine_ids, machine_lookup = build_machine_index(meta_records)
@@ -575,6 +872,22 @@ def main() -> None:
         raise RuntimeError("No usable machine rows found in machine usage data.")
 
     metric_grid = build_metric_grid(aggregated, filtered_old_indices, bin_count)
+    _container_meta_records, container_meta_row_count = load_container_meta(sources["container_meta"])
+    container_counts, container_usage_row_count = aggregate_container_counts(
+        container_usage_path=sources["container_usage"],
+        machine_lookup=machine_lookup,
+        bin_count=bin_count,
+        bin_seconds=args.bin_seconds,
+    )
+    container_grid = build_container_grid(container_counts, filtered_old_indices, bin_count)
+    batch_tasks, batch_task_row_count = load_batch_tasks(sources["batch_task"], bin_count, args.bin_seconds)
+    batch_aggregated, batch_instance_row_count, task_scores = aggregate_batch_instances(
+        batch_instance_path=sources["batch_instance"],
+        machine_lookup=machine_lookup,
+        bin_count=bin_count,
+        bin_seconds=args.bin_seconds,
+    )
+    batch_grid = build_batch_grid(batch_aggregated, filtered_old_indices, bin_count)
     cluster_summary = build_cluster_summary(aggregated, filtered_old_indices, bin_count, args.bin_seconds)
     domains_payload = build_domain_payload(domain_to_indices, machines_payload)
     hotspots_payload = build_hotspots_payload(
@@ -588,10 +901,15 @@ def main() -> None:
     )
 
     default_window = hotspots_payload["highlights"][0] if hotspots_payload["highlights"] else {"startBin": 0, "endBin": min(15, bin_count - 1)}
+    batch_task_dag = build_batch_task_dag(batch_tasks, task_scores, default_window)
     manifest = build_manifest(
         output_root=output_root,
         subset_mode=subset_mode,
         row_count=row_count,
+        container_meta_row_count=container_meta_row_count,
+        container_usage_row_count=container_usage_row_count,
+        batch_task_row_count=batch_task_row_count,
+        batch_instance_row_count=batch_instance_row_count,
         machines_payload=machines_payload,
         domain_to_indices=domain_to_indices,
         bin_seconds=args.bin_seconds,
@@ -604,11 +922,15 @@ def main() -> None:
     write_json(output_root / "cluster-summary.json", cluster_summary)
     write_json(output_root / "hotspots.json", hotspots_payload)
     write_json(output_root / "domains.json", domains_payload)
-    (output_root / "machine-grid.bin").write_bytes(metric_grid)
+    write_json(output_root / ARTIFACTS["batchTaskDag"], batch_task_dag)
+    (output_root / ARTIFACTS["machineGrid"]).write_bytes(metric_grid)
+    (output_root / ARTIFACTS["containerGrid"]).write_bytes(container_grid)
+    (output_root / ARTIFACTS["batchGrid"]).write_bytes(batch_grid)
 
     print(
         f"Built Cluster Pulse data bundle with {len(machines_payload)} machines, "
-        f"{len(domain_to_indices)} failure domains, {row_count} usage rows -> {output_root}"
+        f"{len(domain_to_indices)} failure domains, {row_count} usage rows, "
+        f"{container_usage_row_count} container rows, {batch_instance_row_count} batch instance rows -> {output_root}"
     )
 
 

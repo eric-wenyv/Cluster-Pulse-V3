@@ -19,6 +19,16 @@ export type Manifest = {
   periodSeconds: number;
   binCount: number;
   missingValue: number;
+  artifacts?: {
+    machineGrid: string;
+    containerGrid: string;
+    batchGrid: string;
+    batchTaskDag: string;
+  };
+  containerMetaRowCount?: number;
+  containerRowCount?: number;
+  batchTaskRowCount?: number;
+  batchInstanceRowCount?: number;
   metrics: Array<{
     id: MetricId;
     label: string;
@@ -123,6 +133,43 @@ export type GridData = {
   metricCount: number;
   machineCount: number;
   binCount: number;
+};
+
+export type ContainerGrid = {
+  values: Uint16Array;
+  machineCount: number;
+  binCount: number;
+};
+
+export type BatchGrid = {
+  bytes: Uint8Array;
+  missingValue: number;
+  metricCount: number;
+  machineCount: number;
+  binCount: number;
+};
+
+export type TaskDag = {
+  window: {
+    startBin: number;
+    endBin: number;
+  };
+  nodes: Array<{
+    id: string;
+    jobName: string;
+    taskName: string;
+    type: string;
+    startBin: number;
+    endBin: number;
+    x: number;
+    y: number;
+    resourceScore: number;
+  }>;
+  edges: Array<{
+    source: string;
+    target: string;
+  }>;
+  notes?: string[];
 };
 
 export type AppState = {
