@@ -23,6 +23,7 @@ provide(TooltipKey, api);
 </script>
 
 <template>
+  <slot />
   <div
     class="tooltip"
     :class="{ 'is-visible': visible }"
