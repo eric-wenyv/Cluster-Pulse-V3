@@ -1,24 +1,15 @@
 import * as d3 from 'd3';
 import { CHART_MARGINS, METRIC_META } from '../constants';
-import type { AppData, AppState, GridData, MetricId, WindowMachineStat } from '../types';
-import { formatPercent, formatTime, formatWindow, gridValue, isFullWindow } from '../utils';
+import type { AppData, AppState, GridData, MetricId } from '../types';
+import { formatTime, gridValue, isFullWindow } from '../utils';
 
-type HeatmapSelection = { startBin: number; endBin: number; startRow: number; endRow: number };
+export type HeatmapSelection = { startBin: number; endBin: number; startRow: number; endRow: number };
 
-export function renderWindowCard(root: HTMLElement, data: AppData, state: AppState, stats: WindowMachineStat[], filteredCount: number, visibleCount: number): void {
-  const heatmapTitle = root.querySelector<HTMLElement>('#heatmap-title');
-  const heatmapSubtitle = root.querySelector<HTMLElement>('#heatmap-subtitle');
-  const windowCopy = root.querySelector<HTMLElement>('#window-copy');
-  const top = stats[0];
-  if (!heatmapTitle || !heatmapSubtitle || !windowCopy || !top) {
-    return;
-  }
-
-  heatmapTitle.textContent = `${METRIC_META[state.metricId].label} 热力图`;
-  heatmapSubtitle.textContent = `${filteredCount}/${visibleCount} 台机器 · ${formatWindow(state.timeWindow, data.manifest.binSeconds)}`;
-  windowCopy.textContent = `当前窗口：FD-${top.domainId} 的 ${top.machine.machineId} 在 ${METRIC_META[state.metricId].label} 指标上最突出，峰值 ${formatPercent(
-    top.peaks[state.metricId]
-  )}，窗口均值 ${formatPercent(top.averages[state.metricId])}。`;
+export function buildPalette(metricId: MetricId): Array<[number, number, number, number]> {
+  return Array.from({ length: 101 }, (_, index) => {
+    const color = d3.rgb(METRIC_META[metricId].interpolator(index / 100));
+    return [color.r, color.g, color.b, 255];
+  });
 }
 
 export function drawHeatmapBase(
@@ -116,19 +107,8 @@ export function drawHeatmapOverlay(
   }
 }
 
-export function requestOverlayDraw(overlayFrameHandle: number, setOverlayFrameHandle: (value: number) => void, draw: () => void): void {
-  if (overlayFrameHandle) {
-    return;
-  }
-  const handle = window.requestAnimationFrame(() => {
-    setOverlayFrameHandle(0);
-    draw();
-  });
-  setOverlayFrameHandle(handle);
-}
-
 export function locateHeatmapCell(
-  canvas: HTMLCanvasElement | undefined,
+  canvas: HTMLCanvasElement | null,
   event: MouseEvent,
   visibleMachineIndices: number[],
   binCount: number
@@ -148,17 +128,13 @@ export function locateHeatmapCell(
 }
 
 export function renderBrushChart(
-  root: HTMLElement,
+  svgNode: SVGSVGElement,
   data: AppData,
   state: AppState,
-  brushSuppressed: boolean,
   setBrushSuppressed: (value: boolean) => void,
+  brushSuppressedRef: { value: boolean },
   onWindowChange: (window: [number, number]) => void
 ): void {
-  const svgNode = root.querySelector<SVGSVGElement>('#brush-chart');
-  if (!svgNode) {
-    return;
-  }
   const width = svgNode.clientWidth || svgNode.parentElement?.clientWidth || 900;
   const height = 86;
   const svg = d3.select(svgNode);
@@ -168,8 +144,17 @@ export function renderBrushChart(
   const summary = data.summary.metrics[state.metricId].p90;
   const x = d3.scaleLinear().domain([0, summary.length - 1]).range([CHART_MARGINS.left, width - CHART_MARGINS.right]);
   const y = d3.scaleLinear().domain([0, 100]).range([height - CHART_MARGINS.bottom, CHART_MARGINS.top]);
-  const area = d3.area<number>().x((_, index) => x(index)).y0(height - CHART_MARGINS.bottom).y1((value) => y(value)).curve(d3.curveMonotoneX);
-  const line = d3.line<number>().x((_, index) => x(index)).y((value) => y(value)).curve(d3.curveMonotoneX);
+  const area = d3
+    .area<number>()
+    .x((_, index) => x(index))
+    .y0(height - CHART_MARGINS.bottom)
+    .y1((value) => y(value))
+    .curve(d3.curveMonotoneX);
+  const line = d3
+    .line<number>()
+    .x((_, index) => x(index))
+    .y((value) => y(value))
+    .curve(d3.curveMonotoneX);
 
   svg.append('path').attr('d', area(summary) ?? '').attr('fill', `${METRIC_META[state.metricId].accent}22`);
   svg.append('path').attr('d', line(summary) ?? '').attr('fill', 'none').attr('stroke', METRIC_META[state.metricId].accent).attr('stroke-width', 2.6);
@@ -184,7 +169,7 @@ export function renderBrushChart(
       [width - CHART_MARGINS.right, height - CHART_MARGINS.bottom]
     ])
     .on('end', (event) => {
-      if (brushSuppressed || !event.sourceEvent || !event.selection) {
+      if (brushSuppressedRef.value || !event.sourceEvent || !event.selection) {
         return;
       }
       const [left, right] = event.selection as [number, number];
@@ -200,7 +185,12 @@ export function renderBrushChart(
   setBrushSuppressed(false);
 }
 
-function getCommittedHeatmapSelection(data: AppData, state: AppState, visibleMachineIndices: number[], filteredMachineIndices: number[]): HeatmapSelection | null {
+function getCommittedHeatmapSelection(
+  data: AppData,
+  state: AppState,
+  visibleMachineIndices: number[],
+  filteredMachineIndices: number[]
+): HeatmapSelection | null {
   if (!visibleMachineIndices.length) {
     return null;
   }
@@ -238,7 +228,13 @@ function getDraftHeatmapSelection(
   };
 }
 
-function drawHeatmapSelectionMask(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, selection: HeatmapSelection, visibleMachineCount: number, binCount: number): void {
+function drawHeatmapSelectionMask(
+  context: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  selection: HeatmapSelection,
+  visibleMachineCount: number,
+  binCount: number
+): void {
   const normalizedVisibleMachineCount = Math.max(visibleMachineCount, 1);
   const x1 = (selection.startBin / binCount) * canvas.width;
   const x2 = ((selection.endBin + 1) / binCount) * canvas.width;
