@@ -159,6 +159,8 @@ def resolve_sources(primary_root: Path, fallback_root: Path) -> Tuple[Dict[str, 
 
 
 def parse_int(value: str) -> int:
+    if not value or not value.strip():
+        return 0
     return int(float(value))
 
 
