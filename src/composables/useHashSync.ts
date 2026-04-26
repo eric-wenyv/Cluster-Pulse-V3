@@ -128,18 +128,21 @@ export function useHashSync(): void {
         if (!data) {
           return;
         }
-        stopDataWatch?.();
-        stopDataWatch = null;
-        applyFromHash();
-        stopWatch = watch(
-          () =>
-            [store.metricId, store.timeWindow[0], store.timeWindow[1], store.activeDomainId, store.selectedMachineIndex] as const,
-          () => {
-            scheduleWrite();
-          },
-          { flush: 'post' }
-        );
-        scheduleWrite();
+        try {
+          applyFromHash();
+          stopWatch = watch(
+            () =>
+              [store.metricId, store.timeWindow[0], store.timeWindow[1], store.activeDomainId, store.selectedMachineIndex] as const,
+            () => {
+              scheduleWrite();
+            },
+            { flush: 'post' }
+          );
+          scheduleWrite();
+        } finally {
+          stopDataWatch?.();
+          stopDataWatch = null;
+        }
       },
       { immediate: true }
     );
