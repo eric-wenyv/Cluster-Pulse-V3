@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { loadGrid, loadInitialData } from '../core/data';
 import {
   getFilteredMachineIndices,
@@ -77,12 +77,21 @@ export const useVisualizationStore = defineStore('visualization', () => {
     return result.stats;
   });
 
+  watch(windowMachineStats, (stats) => {
+    if (!stats.length) {
+      return;
+    }
+    const found = stats.some((s) => s.machineIndex === selectedMachineIndex.value);
+    if (!found) {
+      selectedMachineIndex.value = stats[0].machineIndex;
+    }
+  });
+
   const selectedMachineStat = computed<WindowMachineStat | null>(() => {
     if (!windowMachineStats.value.length) {
       return null;
     }
-    const explicit = windowMachineStats.value.find((stat) => stat.machineIndex === selectedMachineIndex.value);
-    return explicit ?? windowMachineStats.value[0];
+    return windowMachineStats.value.find((stat) => stat.machineIndex === selectedMachineIndex.value) ?? null;
   });
 
   const hasActiveHeatmapFilter = computed(() => {
