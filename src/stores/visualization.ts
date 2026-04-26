@@ -91,7 +91,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     if (!windowMachineStats.value.length) {
       return null;
     }
-    return windowMachineStats.value.find((stat) => stat.machineIndex === selectedMachineIndex.value) ?? null;
+    return windowMachineStats.value.find((stat) => stat.machineIndex === selectedMachineIndex.value) ?? windowMachineStats.value[0];
   });
 
   const hasActiveHeatmapFilter = computed(() => {
