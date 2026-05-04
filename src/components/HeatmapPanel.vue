@@ -4,10 +4,12 @@ import { useTooltip } from '../composables/useTooltip';
 import { METRIC_META } from '../core/constants';
 import {
   buildPalette,
-  drawHeatmapBase,
+  drawContainerHatching,
+  drawHeatmapDetail,
   drawHeatmapOverlay,
-  locateHeatmapCell,
-  renderBrushChart
+  drawMinimap,
+  drawMinimapBrush,
+  locateHeatmapCell
 } from '../core/draw/heatmap';
 import type { MetricId } from '../core/types';
 import { formatPercent, formatWindow, gridValue } from '../core/utils';
@@ -17,17 +19,21 @@ const store = useVisualizationStore();
 const tooltip = useTooltip();
 
 const stackRef = ref<HTMLDivElement | null>(null);
-const baseCanvasRef = ref<HTMLCanvasElement | null>(null);
-const overlayCanvasRef = ref<HTMLCanvasElement | null>(null);
-const brushSvgRef = ref<SVGSVGElement | null>(null);
+const detailBaseRef = ref<HTMLCanvasElement | null>(null);
+const detailHatchRef = ref<HTMLCanvasElement | null>(null);
+const detailOverlayRef = ref<HTMLCanvasElement | null>(null);
+const minimapStackRef = ref<HTMLDivElement | null>(null);
+const minimapBaseRef = ref<HTMLCanvasElement | null>(null);
+const minimapHatchRef = ref<HTMLCanvasElement | null>(null);
+const minimapOverlayRef = ref<HTMLCanvasElement | null>(null);
 const legendGradientRef = ref<HTMLDivElement | null>(null);
 
 const hoverMachineIndex = ref<number | null>(null);
 const heatmapDragStart = ref<{ clientX: number; clientY: number; binIndex: number; rowIndex: number; machineIndex: number } | null>(null);
 const heatmapDragCurrent = ref<{ binIndex: number; rowIndex: number; machineIndex: number } | null>(null);
 const heatmapDragging = ref(false);
+const ctrlHoverOnSelection = ref(false);
 let overlayFrame = 0;
-const brushSuppressedRef = { value: false };
 
 const heatmapBaseCache = new Map<string, HTMLCanvasElement>();
 const paletteCache = new Map<MetricId, Array<[number, number, number, number]>>();
@@ -106,24 +112,60 @@ function fitCanvasToContainer(canvas: HTMLCanvasElement | null, container: HTMLE
 }
 
 function ensureCanvasSizes(): boolean {
-  const a = fitCanvasToContainer(baseCanvasRef.value, stackRef.value);
-  const b = fitCanvasToContainer(overlayCanvasRef.value, stackRef.value);
-  return a || b;
+  let changed = false;
+  changed = fitCanvasToContainer(detailBaseRef.value, stackRef.value) || changed;
+  changed = fitCanvasToContainer(detailHatchRef.value, stackRef.value) || changed;
+  changed = fitCanvasToContainer(detailOverlayRef.value, stackRef.value) || changed;
+  changed = fitCanvasToContainer(minimapBaseRef.value, minimapStackRef.value) || changed;
+  changed = fitCanvasToContainer(minimapHatchRef.value, minimapStackRef.value) || changed;
+  changed = fitCanvasToContainer(minimapOverlayRef.value, minimapStackRef.value) || changed;
+  return changed;
 }
 
-function redrawBase(): void {
+function redrawDetail(): void {
   const data = store.data;
   const grid = store.grid;
-  const canvas = baseCanvasRef.value;
+  const canvas = detailBaseRef.value;
   if (!data || !grid || !canvas) {
     return;
   }
-  drawHeatmapBase(canvas, data, grid, store.metricId, store.activeDomainId, store.visibleMachineIndices, heatmapBaseCache, getPalette);
+  drawHeatmapDetail(
+    canvas,
+    data,
+    grid,
+    store.metricId,
+    store.activeDomainId,
+    store.machineFilterKey,
+    store.filteredMachineIndices,
+    store.timeWindow,
+    heatmapBaseCache,
+    getPalette
+  );
 }
 
-function redrawOverlay(): void {
+function redrawMinimap(): void {
   const data = store.data;
-  const canvas = overlayCanvasRef.value;
+  const grid = store.grid;
+  const canvas = minimapBaseRef.value;
+  if (!data || !grid || !canvas) {
+    return;
+  }
+  drawMinimap(
+    canvas,
+    data,
+    grid,
+    store.metricId,
+    store.activeDomainId,
+    store.machineFilterKey,
+    store.filteredMachineIndices,
+    heatmapBaseCache,
+    getPalette
+  );
+}
+
+function redrawDetailOverlay(): void {
+  const data = store.data;
+  const canvas = detailOverlayRef.value;
   if (!data || !canvas) {
     return;
   }
@@ -137,57 +179,105 @@ function redrawOverlay(): void {
       selectedMachineIndex: store.selectedMachineIndex,
       machineFilterIndices: store.machineFilterIndices
     },
-    store.visibleMachineIndices,
     store.filteredMachineIndices,
     hoverMachineIndex.value,
     heatmapDragging.value,
     heatmapDragStart.value,
-    heatmapDragCurrent.value
+    heatmapDragCurrent.value,
+    store.timeWindow,
+    ctrlHoverOnSelection.value,
+    store.brushTimeWindow,
+    store.brushMachineIndices
   );
 }
 
-function requestOverlayDraw(): void {
+function redrawMinimapBrush(): void {
+  const data = store.data;
+  const canvas = minimapOverlayRef.value;
+  if (!data || !canvas) {
+    return;
+  }
+  drawMinimapBrush(canvas, store.timeWindow, data.manifest.binCount, store.filteredMachineIndices, store.brushMachineIndices, store.brushTimeWindow);
+}
+
+function redrawDetailHatching(): void {
+  const canvas = detailHatchRef.value;
+  const containerGrid = store.containerGrid;
+  if (!canvas) {
+    return;
+  }
+  if (!containerGrid || !store.showContainerOverlay) {
+    const ctx = canvas.getContext('2d');
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  drawContainerHatching(canvas, containerGrid, store.filteredMachineIndices, store.timeWindow, null);
+}
+
+function redrawMinimapHatching(): void {
+  const canvas = minimapHatchRef.value;
+  const containerGrid = store.containerGrid;
+  if (!canvas) {
+    return;
+  }
+  if (!containerGrid || !store.showContainerOverlay) {
+    const ctx = canvas.getContext('2d');
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  drawContainerHatching(canvas, containerGrid, store.filteredMachineIndices, null, null);
+}
+
+function requestDetailOverlayDraw(): void {
   if (overlayFrame) {
     return;
   }
   overlayFrame = window.requestAnimationFrame(() => {
     overlayFrame = 0;
-    redrawOverlay();
+    redrawDetailOverlay();
   });
 }
 
-function redrawBrush(): void {
-  const data = store.data;
-  const svgNode = brushSvgRef.value;
-  if (!data || !svgNode) {
-    return;
-  }
-  renderBrushChart(
-    svgNode,
-    data,
-    {
-      metricId: store.metricId,
-      timeWindow: store.timeWindow,
-      activeDomainId: store.activeDomainId,
-      selectedMachineIndex: store.selectedMachineIndex,
-      machineFilterIndices: store.machineFilterIndices
-    },
-    (value) => {
-      brushSuppressedRef.value = value;
-    },
-    brushSuppressedRef,
-    (window) => {
-      store.setTimeWindow(window);
-    }
-  );
-}
-
-function locateCell(event: MouseEvent) {
+function locateDetailCell(event: MouseEvent) {
   const data = store.data;
   if (!data) {
     return null;
   }
-  return locateHeatmapCell(overlayCanvasRef.value, event, store.visibleMachineIndices, data.manifest.binCount);
+  return locateHeatmapCell(
+    detailOverlayRef.value,
+    event,
+    store.filteredMachineIndices,
+    data.manifest.binCount,
+    store.timeWindow
+  );
+}
+
+function isInsideBrushTimeWindow(event: MouseEvent): boolean {
+  const cell = locateDetailCell(event);
+  if (!cell || !store.brushTimeWindow) {
+    return false;
+  }
+  return cell.binIndex >= store.brushTimeWindow[0] && cell.binIndex <= store.brushTimeWindow[1];
+}
+
+function updateDetailCursor(event: PointerEvent): void {
+  const canvas = detailOverlayRef.value;
+  if (!canvas) {
+    return;
+  }
+  if (!heatmapDragging.value && event.ctrlKey && isInsideBrushTimeWindow(event)) {
+    canvas.style.cursor = 'pointer';
+    if (!ctrlHoverOnSelection.value) {
+      ctrlHoverOnSelection.value = true;
+      requestDetailOverlayDraw();
+    }
+  } else {
+    canvas.style.cursor = 'crosshair';
+    if (ctrlHoverOnSelection.value) {
+      ctrlHoverOnSelection.value = false;
+      requestDetailOverlayDraw();
+    }
+  }
 }
 
 function resetDrag(): void {
@@ -196,14 +286,14 @@ function resetDrag(): void {
   heatmapDragging.value = false;
   hoverMachineIndex.value = null;
   tooltip.hide();
-  requestOverlayDraw();
+  requestDetailOverlayDraw();
 }
 
 function onPointerDown(event: PointerEvent): void {
   if (!store.grid || event.button !== 0) {
     return;
   }
-  const hovered = locateCell(event);
+  const hovered = locateDetailCell(event);
   if (!hovered) {
     return;
   }
@@ -218,8 +308,8 @@ function onPointerDown(event: PointerEvent): void {
   heatmapDragging.value = false;
   hoverMachineIndex.value = hovered.machineIndex;
   tooltip.hide();
-  overlayCanvasRef.value?.setPointerCapture(event.pointerId);
-  requestOverlayDraw();
+  detailOverlayRef.value?.setPointerCapture(event.pointerId);
+  requestDetailOverlayDraw();
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -228,7 +318,10 @@ function onPointerMove(event: PointerEvent): void {
   if (!grid || !data) {
     return;
   }
-  const hovered = locateCell(event);
+
+  updateDetailCursor(event);
+
+  const hovered = locateDetailCell(event);
   if (heatmapDragStart.value) {
     if (!hovered) {
       return;
@@ -241,13 +334,13 @@ function onPointerMove(event: PointerEvent): void {
       heatmapDragging.value = true;
     }
     tooltip.hide();
-    requestOverlayDraw();
+    requestDetailOverlayDraw();
     return;
   }
   if (!hovered) {
     if (hoverMachineIndex.value !== null) {
       hoverMachineIndex.value = null;
-      requestOverlayDraw();
+      requestDetailOverlayDraw();
     }
     tooltip.hide();
     return;
@@ -255,7 +348,7 @@ function onPointerMove(event: PointerEvent): void {
   hoverMachineIndex.value = hovered.machineIndex;
   const machine = data.machines.machines[hovered.machineIndex];
   const value = gridValue(grid, store.metricId, hovered.binIndex, hovered.machineIndex);
-  requestOverlayDraw();
+  requestDetailOverlayDraw();
   if (value === null) {
     tooltip.hide();
     return;
@@ -275,8 +368,13 @@ function onPointerLeave(): void {
     return;
   }
   hoverMachineIndex.value = null;
+  ctrlHoverOnSelection.value = false;
+  const canvas = detailOverlayRef.value;
+  if (canvas) {
+    canvas.style.cursor = 'crosshair';
+  }
   tooltip.hide();
-  requestOverlayDraw();
+  requestDetailOverlayDraw();
 }
 
 function commitBrush(
@@ -287,30 +385,28 @@ function commitBrush(
   if (!data) {
     return;
   }
-  const visible = store.visibleMachineIndices;
-  if (!visible.length) {
+  const displayIndices = store.filteredMachineIndices;
+  if (!displayIndices.length) {
     return;
   }
   const startRow = Math.max(0, Math.min(started.rowIndex, ended.rowIndex));
-  const endRow = Math.min(visible.length - 1, Math.max(started.rowIndex, ended.rowIndex));
+  const endRow = Math.min(displayIndices.length - 1, Math.max(started.rowIndex, ended.rowIndex));
   const startBin = Math.max(0, Math.min(started.binIndex, ended.binIndex));
   const endBin = Math.min(data.manifest.binCount - 1, Math.max(started.binIndex, ended.binIndex));
-  const selected = visible.slice(startRow, endRow + 1);
-  const machineIndices = selected.length === 0 || selected.length === visible.length ? [] : selected;
-  store.applyHeatmapBrush({
-    timeWindow: [startBin, endBin],
-    machineIndices,
-    selectedMachine: selected[0] ?? ended.machineIndex
-  });
+  const selected = displayIndices.slice(startRow, endRow + 1);
+  const machineIndices = selected.length === 0 || selected.length === displayIndices.length ? [] : selected;
+  store.brushMachineIndices = machineIndices.length ? machineIndices : null;
+  store.brushTimeWindow = [startBin, endBin];
+  store.setSelectedMachine(selected[0] ?? ended.machineIndex);
 }
 
 function onPointerUp(event: PointerEvent): void {
-  const overlay = overlayCanvasRef.value;
+  const overlay = detailOverlayRef.value;
   if (!store.grid || !heatmapDragStart.value || !overlay) {
     return;
   }
   const started = heatmapDragStart.value;
-  const hovered = locateCell(event) ?? heatmapDragCurrent.value;
+  const hovered = locateDetailCell(event) ?? heatmapDragCurrent.value;
   if (overlay.hasPointerCapture(event.pointerId)) {
     overlay.releasePointerCapture(event.pointerId);
   }
@@ -319,9 +415,28 @@ function onPointerUp(event: PointerEvent): void {
   const wasDragging = heatmapDragging.value;
   heatmapDragging.value = false;
   tooltip.hide();
+
+  if (!wasDragging && event.ctrlKey && isInsideBrushTimeWindow(event)) {
+    if (store.isZoomed) {
+      store.clearZoom();
+    } else {
+      const bw = store.brushTimeWindow;
+      if (bw) {
+        const bm = store.brushMachineIndices;
+        if (bm && bm.length) {
+          store.applyMachineFilter(bm, bm[0]);
+        }
+        store.zoomTo(bw);
+        store.brushMachineIndices = null;
+      }
+    }
+    updateDetailCursor(event);
+    return;
+  }
+
   if (!hovered) {
     hoverMachineIndex.value = null;
-    requestOverlayDraw();
+    requestDetailOverlayDraw();
     return;
   }
   if (!wasDragging) {
@@ -335,22 +450,156 @@ function onPointerCancel(): void {
   resetDrag();
 }
 
+type MinimapBrushMode = 'pan' | 'resize-left' | 'resize-right' | 'create';
+
+const minimapBrushDrag = ref<{
+  mode: MinimapBrushMode;
+  startX: number;
+  startWindow: [number, number];
+} | null>(null);
+
+function getMinimapBrushMode(event: PointerEvent): MinimapBrushMode {
+  const data = store.data;
+  const canvas = minimapOverlayRef.value;
+  if (!data || !canvas) {
+    return 'pan';
+  }
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const leftPx = (store.timeWindow[0] / data.manifest.binCount) * rect.width;
+  const rightPx = ((store.timeWindow[1] + 1) / data.manifest.binCount) * rect.width;
+  const edgeThreshold = 6;
+
+  if (Math.abs(x - leftPx) < edgeThreshold) {
+    return 'resize-left';
+  }
+  if (Math.abs(x - rightPx) < edgeThreshold) {
+    return 'resize-right';
+  }
+  if (x > leftPx && x < rightPx) {
+    return 'pan';
+  }
+  return 'create';
+}
+
+function onMinimapPointerDown(event: PointerEvent): void {
+  if (!store.data || event.button !== 0) {
+    return;
+  }
+  const canvas = minimapOverlayRef.value;
+  if (!canvas) {
+    return;
+  }
+  const mode = getMinimapBrushMode(event);
+
+  if (mode === 'create') {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const bin = Math.floor((x / rect.width) * store.data.manifest.binCount);
+    const windowSize = store.timeWindow[1] - store.timeWindow[0];
+    let newStart = bin - Math.floor(windowSize / 2);
+    let newEnd = newStart + windowSize;
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = windowSize;
+    }
+    if (newEnd >= store.data.manifest.binCount) {
+      newEnd = store.data.manifest.binCount - 1;
+      newStart = newEnd - windowSize;
+    }
+    store.setTimeWindow([newStart, newEnd]);
+    minimapBrushDrag.value = {
+      mode: 'pan',
+      startX: event.clientX,
+      startWindow: [newStart, newEnd]
+    };
+  } else {
+    minimapBrushDrag.value = {
+      mode,
+      startX: event.clientX,
+      startWindow: [...store.timeWindow]
+    };
+  }
+  canvas.setPointerCapture(event.pointerId);
+}
+
+function onMinimapPointerMove(event: PointerEvent): void {
+  if (!minimapBrushDrag.value || !store.data) {
+    return;
+  }
+  const canvas = minimapOverlayRef.value;
+  if (!canvas) {
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const deltaBins = Math.round(
+    ((event.clientX - minimapBrushDrag.value.startX) / rect.width) * store.data.manifest.binCount
+  );
+  const startWindow = minimapBrushDrag.value.startWindow;
+  const mode = minimapBrushDrag.value.mode;
+  const binCount = store.data.manifest.binCount;
+
+  let newStart = startWindow[0];
+  let newEnd = startWindow[1];
+
+  if (mode === 'pan') {
+    newStart = startWindow[0] + deltaBins;
+    newEnd = startWindow[1] + deltaBins;
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = startWindow[1] - startWindow[0];
+    }
+    if (newEnd >= binCount) {
+      newEnd = binCount - 1;
+      newStart = newEnd - (startWindow[1] - startWindow[0]);
+    }
+  } else if (mode === 'resize-left') {
+    newStart = startWindow[0] + deltaBins;
+    newStart = Math.max(0, Math.min(newStart, startWindow[1] - 1));
+  } else if (mode === 'resize-right') {
+    newEnd = startWindow[1] + deltaBins;
+    newEnd = Math.max(startWindow[0] + 1, Math.min(newEnd, binCount - 1));
+  }
+
+  store.setTimeWindow([newStart, newEnd]);
+}
+
+function onMinimapPointerUp(event: PointerEvent): void {
+  const canvas = minimapOverlayRef.value;
+  if (canvas && canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+  minimapBrushDrag.value = null;
+}
+
+function onMinimapPointerLeave(): void {
+  minimapBrushDrag.value = null;
+}
+
 function onResize(): void {
   if (ensureCanvasSizes()) {
     heatmapBaseCache.clear();
-    redrawBase();
-    redrawOverlay();
-    redrawBrush();
+    redrawDetail();
+    redrawMinimap();
+    redrawDetailHatching();
+    redrawMinimapHatching();
+    requestDetailOverlayDraw();
+    redrawMinimapBrush();
   }
 }
 
 let resizeObserver: ResizeObserver | null = null;
 
 watch(
-  () => [store.metricId, store.activeDomainId, store.visibleMachineIndices, store.grid] as const,
+  () => [store.metricId, store.activeDomainId, store.visibleMachineIndices, store.grid, store.machineFilterKey] as const,
   () => {
-    redrawBase();
-    requestOverlayDraw();
+    redrawDetail();
+    redrawMinimap();
+    redrawDetailHatching();
+    redrawMinimapHatching();
+    requestDetailOverlayDraw();
+    redrawMinimapBrush();
   },
   { flush: 'post' }
 );
@@ -361,18 +610,23 @@ watch(
     store.timeWindow[1],
     store.selectedMachineIndex,
     store.filteredMachineIndices,
-    store.machineFilterIndices
+    store.machineFilterIndices,
+    store.brushMachineIndices
   ] as const,
   () => {
-    requestOverlayDraw();
+    redrawDetail();
+    redrawMinimapBrush();
+    redrawDetailHatching();
+    requestDetailOverlayDraw();
   },
   { flush: 'post' }
 );
 
 watch(
-  () => [store.metricId, store.timeWindow[0], store.timeWindow[1], store.data] as const,
+  () => store.showContainerOverlay,
   () => {
-    redrawBrush();
+    redrawDetailHatching();
+    redrawMinimapHatching();
   },
   { flush: 'post' }
 );
@@ -384,9 +638,12 @@ onMounted(async () => {
   }
   ensureCanvasSizes();
   await store.ensureGrid();
-  redrawBase();
-  requestOverlayDraw();
-  redrawBrush();
+  redrawDetail();
+  redrawMinimap();
+  redrawDetailHatching();
+  redrawMinimapHatching();
+  requestDetailOverlayDraw();
+  redrawMinimapBrush();
 });
 
 onBeforeUnmount(() => {
@@ -408,6 +665,14 @@ onBeforeUnmount(() => {
         <span v-if="headerSubtitle" class="header-meta">{{ headerSubtitle }}</span>
       </div>
       <div class="panel-header-actions">
+        <button
+          class="metric-button"
+          type="button"
+          :class="{ 'is-active': store.showContainerOverlay }"
+          @click="store.toggleContainerOverlay"
+        >
+          容器密度
+        </button>
         <button class="domain-clear" type="button" :disabled="!heatmapFilterActive" @click="clearHeatmapFilter">
           清除主图筛选
         </button>
@@ -415,19 +680,28 @@ onBeforeUnmount(() => {
     </div>
     <p class="window-copy">{{ windowCopy }}</p>
     <div ref="stackRef" class="heatmap-stack">
-      <canvas ref="baseCanvasRef" />
+      <canvas ref="detailBaseRef" />
+      <canvas ref="detailHatchRef" class="hatch-canvas" />
       <canvas
-        ref="overlayCanvasRef"
+        ref="detailOverlayRef"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerleave="onPointerLeave"
         @pointerup="onPointerUp"
         @pointercancel="onPointerCancel"
       />
+      <div ref="minimapStackRef" class="minimap-stack">
+        <canvas ref="minimapBaseRef" />
+        <canvas ref="minimapHatchRef" class="hatch-canvas" />
+        <canvas
+          ref="minimapOverlayRef"
+          @pointerdown="onMinimapPointerDown"
+          @pointermove="onMinimapPointerMove"
+          @pointerleave="onMinimapPointerLeave"
+          @pointerup="onMinimapPointerUp"
+        />
+      </div>
       <div v-if="isLoading" class="heatmap-loading">正在加载热力图数据…</div>
-    </div>
-    <div class="brush-wrap">
-      <svg ref="brushSvgRef" />
     </div>
     <div class="legend-row">
       <div class="legend-block">
@@ -441,7 +715,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .heatmap-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
   height: 100%;
   padding: 14px;
@@ -497,7 +771,7 @@ onBeforeUnmount(() => {
   background: #eef2f7;
 }
 
-.heatmap-stack canvas {
+.heatmap-stack > canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -505,13 +779,48 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.heatmap-stack canvas:first-child {
+.heatmap-stack > canvas:first-child {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
 
-.heatmap-stack canvas:nth-child(2) {
+.heatmap-stack > canvas:nth-child(3) {
   cursor: crosshair;
+  touch-action: none;
+}
+
+.hatch-canvas {
+  pointer-events: none;
+}
+
+.minimap-stack {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 200px;
+  height: 120px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface);
+  z-index: 10;
+}
+
+.minimap-stack canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.minimap-stack canvas:first-child {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.minimap-stack canvas:nth-child(3) {
+  cursor: col-resize;
   touch-action: none;
 }
 
@@ -523,12 +832,6 @@ onBeforeUnmount(() => {
   color: var(--muted);
   background: rgba(243, 245, 247, 0.85);
   pointer-events: none;
-}
-
-.brush-wrap svg {
-  width: 100%;
-  height: 72px;
-  display: block;
 }
 
 .legend-row {
@@ -556,5 +859,11 @@ onBeforeUnmount(() => {
   width: min(420px, 100%);
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.panel-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>
