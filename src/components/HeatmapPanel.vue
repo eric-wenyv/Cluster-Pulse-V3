@@ -417,18 +417,15 @@ function onPointerUp(event: PointerEvent): void {
   tooltip.hide();
 
   if (!wasDragging && event.ctrlKey && isInsideBrushTimeWindow(event)) {
-    if (store.isZoomed) {
-      store.clearZoom();
-    } else {
-      const bw = store.brushTimeWindow;
-      if (bw) {
-        const bm = store.brushMachineIndices;
-        if (bm && bm.length) {
-          store.applyMachineFilter(bm, bm[0]);
-        }
+    const bw = store.brushTimeWindow;
+    if (bw) {
+      const bm = store.brushMachineIndices;
+      if (bm && bm.length) {
+        store.zoomTo(bw, bm);
+      } else {
         store.zoomTo(bw);
-        store.brushMachineIndices = null;
       }
+      store.brushMachineIndices = null;
     }
     updateDetailCursor(event);
     return;
@@ -666,6 +663,14 @@ onBeforeUnmount(() => {
       </div>
       <div class="panel-header-actions">
         <button
+          v-if="store.zoomStack.length > 0"
+          class="zoom-back-button"
+          type="button"
+          @click="store.zoomBack"
+        >
+          返回上一层 ({{ store.zoomStack.length }})
+        </button>
+        <button
           class="metric-button"
           type="button"
           :class="{ 'is-active': store.showContainerOverlay }"
@@ -865,5 +870,18 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.zoom-back-button {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.zoom-back-button:hover {
+  background: var(--line);
 }
 </style>

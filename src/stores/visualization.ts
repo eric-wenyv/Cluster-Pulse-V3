@@ -26,6 +26,9 @@ export const useVisualizationStore = defineStore('visualization', () => {
   const brushMachineIndices = ref<number[] | null>(null);
   const showContainerOverlay = ref(false);
 
+  type ZoomLevel = { timeWindow: [number, number]; machineFilterIndices: number[] | null };
+  const zoomStack = ref<ZoomLevel[]>([]);
+
   const machineMetricPeaks = computed(() => {
     if (!data.value) {
       return null;
@@ -180,6 +183,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     }
     activeDomainId.value = domainId;
     machineFilterIndices.value = null;
+    zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
     if (data.value) {
@@ -226,16 +230,38 @@ export const useVisualizationStore = defineStore('visualization', () => {
     }
   }
 
-  function zoomTo(window: [number, number]): void {
+  function zoomTo(window: [number, number], nextMachineFilter: number[] | null = null): void {
     if (!data.value) {
       return;
     }
     const next = clampWindow(window, data.value.manifest.binCount);
+    zoomStack.value.push({
+      timeWindow: [...timeWindow.value] as [number, number],
+      machineFilterIndices: machineFilterIndices.value
+    });
     zoomedTimeWindow.value = next;
     timeWindow.value = next;
+    if (nextMachineFilter !== null) {
+      machineFilterIndices.value = normalizeMachineFilter(nextMachineFilter, visibleMachineIndices.value);
+    }
+  }
+
+  function zoomBack(): void {
+    const prev = zoomStack.value.pop();
+    if (!prev) {
+      return;
+    }
+    timeWindow.value = prev.timeWindow;
+    machineFilterIndices.value = prev.machineFilterIndices;
+    if (zoomStack.value.length === 0) {
+      zoomedTimeWindow.value = null;
+    } else {
+      zoomedTimeWindow.value = timeWindow.value;
+    }
   }
 
   function clearZoom(): void {
+    zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
     machineFilterIndices.value = null;
@@ -253,6 +279,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     activeDomainId.value = null;
     machineFilterIndices.value = null;
     brushMachineIndices.value = null;
+    zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
   }
@@ -262,6 +289,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
       return;
     }
     metricId.value = hotspot.metricId;
+    zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
     timeWindow.value = clampWindow([hotspot.startBin, hotspot.endBin], data.value.manifest.binCount);
@@ -293,6 +321,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     selectedMachineStat,
     hasActiveHeatmapFilter,
     hasScopeFilter,
+    zoomStack,
     bootstrap,
     ensureGrid,
     ensureContainerGrid,
@@ -306,6 +335,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     applyMachineFilter,
     applyHeatmapBrush,
     zoomTo,
+    zoomBack,
     clearZoom,
     clearHeatmapFilter,
     clearScopeFilter,
