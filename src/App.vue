@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue';
 import AppStatus from './components/AppStatus.vue';
 import HeaderBar from './components/HeaderBar.vue';
 import HeatmapPanel from './components/HeatmapPanel.vue';
+import StreamgraphPanel from './components/StreamgraphPanel.vue';
+import MirrorPanel from './components/MirrorPanel.vue';
 import MachineDetailPanel from './components/MachineDetailPanel.vue';
 import StructurePanel from './components/StructurePanel.vue';
 import Tooltip from './components/Tooltip.vue';
@@ -30,12 +32,16 @@ onMounted(async () => {
 <template>
   <Tooltip />
   <AppStatus v-if="errorMessage" :message="errorMessage" />
-  <div v-else-if="ready" ref="rootRef" class="viz-shell">
-    <HeaderBar />
-    <main class="viz-grid">
-      <HeatmapPanel class="q-heatmap panel-cell" />
-      <StructurePanel class="q-structure panel-cell" />
-      <MachineDetailPanel class="q-detail panel-cell" />
-    </main>
+  <div v-else-if="ready" ref="rootRef" class="viz-shell cockpit">
+    <StreamgraphPanel class="header-panel" />
+    <HeatmapPanel class="main-panel" />
+    <MirrorPanel class="mirror-panel" />
+    
+    <div class="right-panel">
+      <StructurePanel class="struct-panel" />
+      <MachineDetailPanel class="detail-panel" />
+    </div>
+    
+    <HeaderBar class="footer-panel" />
   </div>
 </template>
