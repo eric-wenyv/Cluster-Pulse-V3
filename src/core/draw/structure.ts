@@ -17,6 +17,8 @@ export type DomainCallbacks = {
 
 export type CorrelationCallbacks = {
   onSelectPair: (pair: [MetricId, MetricId]) => void;
+  showTooltip: (x: number, y: number, html: string) => void;
+  hideTooltip: () => void;
 };
 
 export function renderScatter(
@@ -282,12 +284,13 @@ export function renderCorrelationMatrix(
 
   if (!stats.length) return;
 
-  const pad = 10;
-  const cellW = (width - pad * 2) / 4;
-  const cellH = (height - pad * 2) / 4;
+  const marginL = 24;
+  const marginT = 20;
+  const cellW = (width - marginL - 4) / 4;
+  const cellH = (height - marginT - 4) / 4;
   const cell = Math.min(cellW, cellH);
-  const offX = (width - cell * 4) / 2;
-  const offY = (height - cell * 4) / 2;
+  const offX = marginL + (width - marginL - 4 - cell * 4) / 2;
+  const offY = marginT + (height - marginT - 4 - cell * 4) / 2;
 
   // Compute correlation matrix
   const vals: number[][] = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
@@ -301,6 +304,23 @@ export function renderCorrelationMatrix(
       vals[r][c] = corr;
       vals[c][r] = corr;
     }
+  }
+
+  // Draw Labels
+  ctx.fillStyle = 'var(--muted)';
+  ctx.font = '8px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < 4; i++) {
+    const label = METRIC_META[METRIC_ORDER[i]].label;
+    // Column Labels (Top)
+    ctx.fillText(label, offX + i * cell + cell / 2, offY - 10);
+    // Row Labels (Left)
+    ctx.save();
+    ctx.translate(offX - 10, offY + i * cell + cell / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
   }
 
   for (let r = 0; r < 4; r++) {
@@ -356,8 +376,19 @@ export function renderCorrelationMatrix(
     const r = Math.floor((y - offY) / cell);
     if (r >= 0 && r < 4 && c >= 0 && c < 4 && r !== c) {
       canvas.style.cursor = 'pointer';
+      const metricR = METRIC_META[METRIC_ORDER[r]].label;
+      const metricC = METRIC_META[METRIC_ORDER[c]].label;
+      callbacks.showTooltip(
+        e.clientX,
+        e.clientY,
+        `<strong>相关性</strong><br />${metricR} 与 ${metricC}<br />Spearman: ${vals[r][c].toFixed(2)}`
+      );
     } else {
       canvas.style.cursor = 'default';
+      callbacks.hideTooltip();
     }
+  };
+  canvas.onmouseleave = () => {
+    callbacks.hideTooltip();
   };
 }

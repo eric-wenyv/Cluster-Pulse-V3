@@ -16,6 +16,7 @@ const correlationCanvasRef = ref<HTMLCanvasElement | null>(null);
 
 const scatterCaption = ref('');
 const scatterPair = ref<[MetricId, MetricId]>(['cpu', 'memory']);
+const showCorrelation = ref(true);
 
 const hasDomainScope = computed(() => Boolean(store.activeDomainId));
 
@@ -92,7 +93,9 @@ function redrawCorrelation(): void {
     {
       onSelectPair: (pair) => {
         scatterPair.value = pair;
-      }
+      },
+      showTooltip: (x, y, html) => tooltip.show(x, y, html),
+      hideTooltip: () => tooltip.hide()
     }
   );
 }
@@ -157,11 +160,20 @@ onBeforeUnmount(() => {
           <span class="label">散点密度与相关性</span>
           <strong>{{ METRIC_META[scatterPair[0]].label }} 与 {{ METRIC_META[scatterPair[1]].label }} 分布</strong>
         </div>
-        <span class="caption">{{ scatterCaption }}</span>
+        <div style="display: flex; align-items: baseline; gap: 12px;">
+          <span class="caption">{{ scatterCaption }}</span>
+          <button
+            class="domain-clear"
+            type="button"
+            @click="showCorrelation = !showCorrelation"
+          >
+            {{ showCorrelation ? '隐藏矩阵' : '显示矩阵' }}
+          </button>
+        </div>
       </div>
       <div class="bottom-content">
         <svg ref="scatterSvgRef" class="chart-svg scatter-svg" />
-        <canvas ref="correlationCanvasRef" class="chart-canvas correlation-canvas"></canvas>
+        <canvas v-show="showCorrelation" ref="correlationCanvasRef" class="chart-canvas correlation-canvas"></canvas>
       </div>
     </div>
   </section>
