@@ -55,11 +55,7 @@ export function renderScatter(
   const x = d3.scaleLinear().domain(xDomain).range([margin.left, width - margin.right]);
   const y = d3.scaleLinear().domain(yDomain).range([height - margin.bottom, margin.top]);
   
-  const peakDomain = d3.max(stats, (item) => item.peaks[state.metricId]) ?? 100;
-  const radius = d3
-    .scaleSqrt<number, number>()
-    .domain([0, Math.max(peakDomain, 1)])
-    .range([2, Math.max(6, Math.min(width, height) * 0.04)]);
+  const rFixed = 4;
 
   // Density contours
   const density = d3.contourDensity<WindowMachineStat>()
@@ -118,7 +114,7 @@ export function renderScatter(
     .join('circle')
     .attr('cx', (d) => x(d.averages[xMetric]))
     .attr('cy', (d) => y(d.averages[yMetric]))
-    .attr('r', (d) => radius(d.peaks[state.metricId]))
+    .attr('r', rFixed)
     .attr('fill', `rgba(255,255,255,0.2)`) // translucent white on top of density
     .attr('stroke', (d) => (d.machineIndex === state.selectedMachineIndex ? '#231913' : `${METRIC_META[state.metricId].accent}60`))
     .attr('stroke-width', (d) => (d.machineIndex === state.selectedMachineIndex ? 2.4 : 1))
@@ -143,13 +139,13 @@ export function renderScatter(
     svg.append('circle')
       .attr('cx', x(selectedStat.averages[xMetric]))
       .attr('cy', y(selectedStat.averages[yMetric]))
-      .attr('r', radius(selectedStat.peaks[state.metricId]) + 2)
+      .attr('r', rFixed + 2)
       .attr('fill', 'none')
       .attr('stroke', 'var(--ink)')
       .attr('stroke-width', 2);
   }
 
-  return `${stats.length} 台机器，点大小表示 ${METRIC_META[state.metricId].label} 峰值`;
+  return `${stats.length} 台机器，点分布反映了指标间的相关性`;
 }
 
 export function renderIcicle(
