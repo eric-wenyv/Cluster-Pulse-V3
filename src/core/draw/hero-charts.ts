@@ -100,7 +100,11 @@ export function renderStreamgraph(
   const brush = d3.brushX()
     .extent([[0, 0], [width, height]])
     .on('end', (event) => {
-      if (!event.sourceEvent || !event.selection) {
+      if (!event.sourceEvent) {
+        return;
+      }
+      if (!event.selection) {
+        callbacks.onWindowChange([0, binCount - 1]);
         return;
       }
       const [left, right] = event.selection as [number, number];
@@ -113,7 +117,11 @@ export function renderStreamgraph(
   brushGroup.call(brush as any);
   
   // Highlight the current time window
-  brushGroup.call(brush.move as any, [x(state.timeWindow[0]), x(state.timeWindow[1] + 1)]);
+  if (state.timeWindow[0] === 0 && state.timeWindow[1] === binCount - 1) {
+    brushGroup.call(brush.move as any, null);
+  } else {
+    brushGroup.call(brush.move as any, [x(state.timeWindow[0]), x(state.timeWindow[1] + 1)]);
+  }
 }
 
 export function renderMirrorChart(
@@ -181,9 +189,9 @@ export function renderMirrorChart(
     .attr('y1', midY)
     .attr('x2', width)
     .attr('y2', midY)
-    .attr('stroke', '#ffffff')
+    .attr('stroke', 'var(--line-strong)')
     .attr('stroke-width', 1.5)
-    .attr('opacity', 0.5);
+    .attr('opacity', 0.8);
 
   // Add day markers
   const axisGroup = svg.append('g').attr('class', 'axis-days');
@@ -199,7 +207,7 @@ export function renderMirrorChart(
         .attr('y1', 0)
         .attr('x2', x(tick))
         .attr('y2', height)
-        .attr('stroke', 'rgba(255, 255, 255, 0.3)')
+        .attr('stroke', 'var(--line)')
         .attr('stroke-dasharray', '2,2');
         
       axisGroup.append('text')
@@ -212,15 +220,17 @@ export function renderMirrorChart(
   });
 
   // Brush overlay for timeWindow highlighting
-  const brushGroup = svg.append('g');
-  brushGroup.append('rect')
-    .attr('x', x(state.timeWindow[0]))
-    .attr('y', 0)
-    .attr('width', x(state.timeWindow[1] + 1) - x(state.timeWindow[0]))
-    .attr('height', height)
-    .attr('fill', 'rgba(255, 255, 255, 0.2)')
-    .attr('stroke', 'rgba(255, 255, 255, 0.5)')
-    .attr('pointer-events', 'none');
+  if (state.timeWindow[0] !== 0 || state.timeWindow[1] !== binCount - 1) {
+    const brushGroup = svg.append('g');
+    brushGroup.append('rect')
+      .attr('x', x(state.timeWindow[0]))
+      .attr('y', 0)
+      .attr('width', x(state.timeWindow[1] + 1) - x(state.timeWindow[0]))
+      .attr('height', height)
+      .attr('fill', 'rgba(0, 0, 0, 0.05)')
+      .attr('stroke', 'rgba(0, 0, 0, 0.2)')
+      .attr('pointer-events', 'none');
+  }
 
   // Invisible rect for tooltips
   svg.append('rect')

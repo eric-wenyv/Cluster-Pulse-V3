@@ -102,8 +102,9 @@ onBeforeUnmount(() => {
   padding: 8px 12px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.45);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid var(--line);
   z-index: 10;
   display: flex;
   justify-content: space-between;
@@ -123,8 +124,9 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px solid var(--line);
 }
 
 .badge-dot {
@@ -137,7 +139,8 @@ onBeforeUnmount(() => {
 .svg-container {
   flex: 1;
   min-height: 0;
-  background: var(--ink); /* Dark background specifically for mirror chart as in prototype */
+  padding-top: 35px;
+  background: var(--surface-soft);
 }
 
 .mirror-svg {
