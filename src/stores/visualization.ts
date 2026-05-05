@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
-import { loadContainerGrid, loadGrid, loadInitialData } from '../core/data';
+import { loadBatchGrid, loadContainerGrid, loadGrid, loadInitialData } from '../core/data';
 import {
   getFilteredMachineIndices,
   getMachineFilterKey,
@@ -9,13 +9,14 @@ import {
   getWindowMachineStats,
   normalizeMachineFilter
 } from '../core/selectors';
-import type { AppData, ContainerGrid, GridData, Hotspot, MetricId, WindowMachineStat } from '../core/types';
+import type { AppData, BatchGrid, ContainerGrid, GridData, Hotspot, MetricId, WindowMachineStat } from '../core/types';
 import { clampWindow, isFullWindow } from '../core/utils';
 
 export const useVisualizationStore = defineStore('visualization', () => {
   const data = shallowRef<AppData | null>(null);
   const grid = shallowRef<GridData | null>(null);
   const containerGrid = shallowRef<ContainerGrid | null>(null);
+  const batchGrid = shallowRef<BatchGrid | null>(null);
   const metricId = ref<MetricId>('cpu');
   const timeWindow = ref<[number, number]>([0, 0]);
   const zoomedTimeWindow = ref<[number, number] | null>(null);
@@ -147,6 +148,13 @@ export const useVisualizationStore = defineStore('visualization', () => {
       return;
     }
     containerGrid.value = await loadContainerGrid(data.value.manifest);
+  }
+
+  async function ensureBatchGrid(): Promise<void> {
+    if (batchGrid.value || !data.value) {
+      return;
+    }
+    batchGrid.value = await loadBatchGrid(data.value.manifest);
   }
 
   function toggleContainerOverlay(): void {
@@ -303,6 +311,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     data,
     grid,
     containerGrid,
+    batchGrid,
     metricId,
     timeWindow,
     zoomedTimeWindow,
@@ -325,6 +334,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     bootstrap,
     ensureGrid,
     ensureContainerGrid,
+    ensureBatchGrid,
     toggleContainerOverlay,
     setMetric,
     setTimeWindow,

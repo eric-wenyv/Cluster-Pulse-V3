@@ -44,72 +44,32 @@ input {
 
 .viz-shell {
   display: grid;
-  grid-template-rows: var(--header-h) minmax(0, 1fr);
-  height: 100vh;
-}
-
-.site-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 16px;
-  height: var(--header-h);
-  background: rgba(243, 245, 247, 0.96);
-  border-bottom: 1px solid var(--line);
-}
-
-.site-badge {
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.site-nav {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-
-.site-nav a {
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 0.95rem;
-}
-
-.site-nav a:hover {
-  color: var(--accent);
-}
-
-.viz-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "header header header header header header header header right right right right"
+    "main   main   main   main   main   main   main   main   right right right right"
+    "mirror mirror mirror mirror mirror mirror mirror mirror right right right right"
+    "footer footer footer footer footer footer footer footer footer footer footer footer";
+  grid-template-rows: 150px 1fr 130px 42px;
+  grid-template-columns: repeat(12, 1fr);
   gap: 12px;
   padding: 12px;
-  height: calc(100vh - var(--header-h));
+  height: 100vh;
+  min-width: 1280px;
+}
+
+.header-panel { grid-area: header; }
+.main-panel   { grid-area: main; }
+.right-panel  { grid-area: right; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.mirror-panel { grid-area: mirror; }
+.footer-panel { grid-area: footer; border-radius: var(--radius); }
+
+.struct-panel {
+  flex: 1.5;
   min-height: 0;
 }
 
-.q-heatmap {
-  grid-column: 1 / span 8;
-  grid-row: 1 / span 2;
-}
-
-.q-structure {
-  grid-column: 9 / span 4;
-  grid-row: 1 / span 1;
-}
-
-.q-detail {
-  grid-column: 9 / span 4;
-  grid-row: 2 / span 1;
-}
-
-.panel-cell {
-  min-width: 0;
+.detail-panel {
+  flex: 1;
   min-height: 0;
 }
 
@@ -297,20 +257,13 @@ input {
   }
 
   .viz-shell {
+    display: flex;
+    flex-direction: column;
     height: auto;
+    min-width: 0;
   }
 
-  .viz-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
-    height: auto;
-  }
-
-  .q-heatmap,
-  .q-structure,
-  .q-detail {
-    grid-column: 1;
-    grid-row: auto;
+  .header-panel, .main-panel, .mirror-panel, .struct-panel, .detail-panel {
     min-height: 360px;
   }
 }

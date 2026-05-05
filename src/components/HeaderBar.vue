@@ -15,14 +15,11 @@ const selectionBadges = computed(() => {
     return [];
   }
   return [
-    `指标：${METRIC_META[store.metricId].label}`,
     `窗口：${formatWindow(store.timeWindow, data.manifest.binSeconds)}`,
     `机器：${store.filteredMachineIndices.length}/${store.visibleMachineIndices.length}`,
     `范围：${store.activeDomainId ? `FD-${store.activeDomainId}` : '全部故障域'}`
   ];
 });
-
-const helpText = computed(() => METRIC_META[store.metricId].description);
 
 function selectMetric(metricId: MetricId): void {
   store.setMetric(metricId);
@@ -36,113 +33,134 @@ const hasScope = computed(() => store.hasScopeFilter);
 </script>
 
 <template>
-  <header class="site-header viz-header">
-    <div class="header-left">
-      <div class="site-badge">集群资源观察</div>
-      <nav class="site-nav">
-        <a href="./methodology.html">方法说明</a>
-      </nav>
-    </div>
-    <div class="header-center">
-      <div class="metric-buttons">
-        <button
-          v-for="metric in metrics"
-          :key="metric.id"
-          type="button"
-          class="metric-button"
-          :class="{ 'is-active': metric.id === store.metricId }"
-          @click="selectMetric(metric.id)"
-        >
-          {{ METRIC_META[metric.id].label }}
-        </button>
-      </div>
-      <div class="metric-help">{{ helpText }}</div>
-    </div>
-    <div class="header-right">
-      <div class="selection-badges">
-        <span v-for="badge in selectionBadges" :key="badge">{{ badge }}</span>
-      </div>
+  <footer class="footer-panel">
+    <div class="metric-buttons">
       <button
-        class="domain-clear"
+        v-for="metric in metrics"
+        :key="metric.id"
         type="button"
-        :disabled="!hasScope"
-        @click="clearScope"
+        class="metric-button badge"
+        :class="{ 'is-active': metric.id === store.metricId }"
+        @click="selectMetric(metric.id)"
       >
-        全部机器
+        <span class="badge-dot" :style="{ background: METRIC_META[metric.id].accent }"></span>
+        {{ METRIC_META[metric.id].label }}
       </button>
     </div>
-  </header>
+    
+    <div class="selection-badges">
+      <span v-for="badge in selectionBadges" :key="badge" class="badge-text">{{ badge }}</span>
+      <button
+        v-if="hasScope"
+        class="domain-clear"
+        type="button"
+        @click="clearScope"
+      >
+        清除过滤
+      </button>
+    </div>
+    
+    <div class="footer-right">
+      <span class="url-hash">Cluster Pulse Cockpit</span>
+      <a href="./methodology.html" class="method-link">方法说明</a>
+    </div>
+  </footer>
 </template>
 
 <style scoped>
-.viz-header {
-  display: grid;
-  grid-template-columns: minmax(200px, auto) minmax(0, 1fr) minmax(220px, auto);
-  align-items: center;
-  gap: 16px;
-  height: var(--header-h);
-  padding: 0 16px;
-  margin: 0;
-  background: rgba(243, 245, 247, 0.96);
-  border-bottom: 1px solid var(--line);
-  position: static;
-}
-
-.header-left {
+.footer-panel {
   display: flex;
   align-items: center;
   gap: 18px;
-}
-
-.header-center {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.header-center .metric-help {
-  color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.4;
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: flex-end;
+  padding: 0 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
 }
 
 .metric-buttons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
-.metric-buttons .metric-button {
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 0.86rem;
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.header-right .selection-badges {
-  flex-wrap: nowrap;
-  overflow: hidden;
+.badge:hover {
+  background: var(--line);
 }
 
-.header-right .selection-badges span {
-  min-height: 26px;
-  padding: 0 8px;
+.badge.is-active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.selection-badges {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 12px;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.badge-text {
   font-size: 0.78rem;
+  color: var(--muted);
 }
 
 .domain-clear {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 0.84rem;
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.domain-clear:hover {
+  border-color: var(--accent);
+}
+
+.footer-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.url-hash {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.method-link {
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.method-link:hover {
+  text-decoration: underline;
 }
 </style>
