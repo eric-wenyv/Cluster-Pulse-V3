@@ -67,3 +67,36 @@ export function escapeHtml(value: string): string {
 export function renderTerm(label: string, description: string): string {
   return `<span class="term-hint" tabindex="0" data-term-label="${escapeHtml(label)}" data-term-tooltip="${escapeHtml(description)}">${escapeHtml(label)}</span>`;
 }
+
+function computeRanks(arr: number[]): number[] {
+  const sorted = [...arr].map((val, i) => ({ val, i })).sort((a, b) => a.val - b.val);
+  const ranks = new Array(arr.length);
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j < sorted.length && sorted[j].val === sorted[i].val) {
+      j++;
+    }
+    const rank = (i + j - 1) / 2 + 1; // Average rank
+    for (let k = i; k < j; k++) {
+      ranks[sorted[k].i] = rank;
+    }
+    i = j;
+  }
+  return ranks;
+}
+
+export function computeSpearmanCorrelation(x: number[], y: number[]): number {
+  if (x.length !== y.length || x.length < 2) return 0;
+  const n = x.length;
+  const rankX = computeRanks(x);
+  const rankY = computeRanks(y);
+  
+  let sumDSq = 0;
+  for (let i = 0; i < n; i++) {
+    const d = rankX[i] - rankY[i];
+    sumDSq += d * d;
+  }
+  
+  return 1 - (6 * sumDSq) / (n * (n * n - 1));
+}
