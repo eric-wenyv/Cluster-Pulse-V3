@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { METRIC_META, METRIC_ORDER } from '../constants';
 import type { AppData, AppState, BatchGrid, ContainerGrid, MetricId } from '../types';
 import { formatTime, metricIndex } from '../utils';
+import { fadeInSvg } from './transitions';
 
 export function computeContainerSeries(containerGrid: ContainerGrid | null, binCount: number, machineCount: number): number[] {
   const series = new Array(binCount).fill(0);
@@ -122,6 +123,7 @@ export function renderStreamgraph(
   } else {
     brushGroup.call(brush.move as any, [x(state.timeWindow[0]), x(state.timeWindow[1] + 1)]);
   }
+  fadeInSvg(svgNode);
 }
 
 export function renderMirrorChart(
@@ -258,4 +260,5 @@ export function renderMirrorChart(
       }
     })
     .on('mouseleave', () => callbacks.hideTooltip());
+  fadeInSvg(svgNode);
 }

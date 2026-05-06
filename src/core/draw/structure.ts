@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { METRIC_META, METRIC_ORDER } from '../constants';
 import type { AppState, MetricId, WindowMachineStat } from '../types';
 import { computeSpearmanCorrelation, formatPercent } from '../utils';
+import { fadeInSvg } from './transitions';
 
 export type ScatterCallbacks = {
   showTooltip: (x: number, y: number, html: string) => void;
@@ -145,6 +146,7 @@ export function renderScatter(
       .attr('stroke-width', 2);
   }
 
+  fadeInSvg(svgNode);
   return `${stats.length} 台机器，点分布反映了指标间的相关性`;
 }
 
@@ -263,6 +265,7 @@ export function renderIcicle(
     .attr('font-size', '8px')
     .style('pointer-events', 'none')
     .text(d => (d.x1 - d.x0) > 30 ? d.data.name : '');
+  fadeInSvg(svgNode);
 }
 
 export function renderCorrelationMatrix(
