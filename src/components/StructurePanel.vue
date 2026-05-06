@@ -44,8 +44,10 @@ const scatterRendererTitle = computed(() => {
     `候选点数 ${assessment.candidatePrimitiveCount}`,
     `风险 ${assessment.riskLevel}`,
     `WebGL ${webglCapability.value.available ? webglCapability.value.version : '不可用'}`,
+    `窗口统计 ${store.windowStatsWorkerEnabled ? 'Worker' : '主线程回退'}`,
+    store.windowStatsWorkerError ? `Worker 错误 ${store.windowStatsWorkerError}` : '',
     ...assessment.reasons
-  ].join('；');
+  ].filter(Boolean).join('；');
 });
 
 function clearDomain(): void {

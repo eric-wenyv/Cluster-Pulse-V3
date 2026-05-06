@@ -54,3 +54,14 @@
 2. 当 `WebGLAssessment.recommendedRenderer !== 'd3-svg'` 时，挂载 regl canvas 层。
 3. 使用 typed arrays 传递点或矩形实例属性，避免为每个 primitive 生成 DOM。
 4. 保留 D3/SVG 降级路径，供 WebGL 不可用或数据量较小场景使用。
+
+## Worker 统计护栏
+
+Issue #3 第二阶段已将窗口内机器统计迁移到 Web Worker：
+
+- [window-stats.worker.ts](../src/workers/window-stats.worker.ts) 在 worker 线程中扫描 `machine-grid.bin`、计算四指标均值/计数/峰值，并按当前指标排序。
+- [window-stats-worker.ts](../src/core/window-stats-worker.ts) 是主线程 client，负责初始化 worker、发送窗口参数、丢弃过期响应，并把 typed-array payload 还原成现有 `WindowMachineStat[]`。
+- [visualization.ts](../src/stores/visualization.ts) 保留同步 `getWindowMachineStats()` 作为降级路径；如果 Worker 不可用或运行失败，UI 会继续显示主线程计算结果。
+- `StructurePanel` 的渲染策略 tooltip 会显示「窗口统计 Worker」或「窗口统计 主线程回退」，便于手动验证。
+
+Worker 返回值使用 `Int32Array`、`Float32Array`、`Uint32Array`、`Uint8Array` 和 `Int16Array`，并通过 transferable buffers 回传，避免在主线程和 worker 之间复制大量对象。

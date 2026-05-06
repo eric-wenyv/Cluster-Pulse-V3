@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef, watch } from 'vue';
+import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import { loadBatchGrid, loadContainerGrid, loadGrid, loadInitialData } from '../core/data';
 import {
   getFilteredMachineIndices,
@@ -11,6 +11,7 @@ import {
 } from '../core/selectors';
 import type { AppData, BatchGrid, ContainerGrid, GridData, Hotspot, MetricId, WindowMachineStat } from '../core/types';
 import { clampWindow, isFullWindow } from '../core/utils';
+import { WindowStatsWorkerClient } from '../core/window-stats-worker';
 
 export const useVisualizationStore = defineStore('visualization', () => {
   const data = shallowRef<AppData | null>(null);
@@ -26,6 +27,12 @@ export const useVisualizationStore = defineStore('visualization', () => {
   const machineFilterIndices = ref<number[] | null>(null);
   const brushMachineIndices = ref<number[] | null>(null);
   const showContainerOverlay = ref(false);
+  const windowMachineStats = shallowRef<WindowMachineStat[]>([]);
+  const windowStatsPending = ref(false);
+  const windowStatsWorkerEnabled = ref(false);
+  const windowStatsWorkerError = ref<string | null>(null);
+  const windowStatsWorker = new WindowStatsWorkerClient();
+  let windowStatsRequestSeq = 0;
 
   type ZoomLevel = { timeWindow: [number, number]; machineFilterIndices: number[] | null };
   const zoomStack = ref<ZoomLevel[]>([]);
@@ -66,7 +73,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
 
   const isZoomed = computed(() => zoomedTimeWindow.value !== null);
 
-  const windowMachineStats = computed<WindowMachineStat[]>(() => {
+  function computeWindowMachineStatsFallback(): WindowMachineStat[] {
     if (!data.value || !grid.value) {
       return [];
     }
@@ -86,7 +93,65 @@ export const useVisualizationStore = defineStore('visualization', () => {
       machineFilterKey: machineFilterKey.value
     });
     return result.stats;
-  });
+  }
+
+  async function refreshWindowMachineStats(): Promise<void> {
+    const appData = data.value;
+    const appGrid = grid.value;
+    if (!appData || !appGrid) {
+      windowMachineStats.value = [];
+      windowStatsPending.value = false;
+      return;
+    }
+
+    const requestSeq = ++windowStatsRequestSeq;
+    const nextFilteredMachineIndices = [...filteredMachineIndices.value];
+    windowStatsPending.value = true;
+
+    try {
+      const stats = await windowStatsWorker.compute({
+        data: appData,
+        grid: appGrid,
+        metricId: metricId.value,
+        timeWindow: [...timeWindow.value] as [number, number],
+        filteredMachineIndices: nextFilteredMachineIndices
+      });
+      if (requestSeq !== windowStatsRequestSeq) {
+        return;
+      }
+      windowMachineStats.value = stats;
+      windowStatsWorkerEnabled.value = true;
+      windowStatsWorkerError.value = null;
+    } catch (error) {
+      if (requestSeq !== windowStatsRequestSeq) {
+        return;
+      }
+      windowMachineStats.value = computeWindowMachineStatsFallback();
+      windowStatsWorkerEnabled.value = false;
+      windowStatsWorkerError.value = error instanceof Error ? error.message : 'Unknown window stats worker error';
+    } finally {
+      if (requestSeq === windowStatsRequestSeq) {
+        windowStatsPending.value = false;
+      }
+    }
+  }
+
+  watch(
+    () => [
+      data.value,
+      grid.value,
+      metricId.value,
+      timeWindow.value[0],
+      timeWindow.value[1],
+      activeDomainId.value,
+      machineFilterKey.value,
+      filteredMachineIndices.value
+    ] as const,
+    () => {
+      refreshWindowMachineStats();
+    },
+    { flush: 'post', immediate: true }
+  );
 
   watch(windowMachineStats, (stats) => {
     if (!stats.length) {
@@ -113,6 +178,10 @@ export const useVisualizationStore = defineStore('visualization', () => {
   });
 
   const hasScopeFilter = computed(() => Boolean(activeDomainId.value || machineFilterIndices.value?.length));
+
+  onScopeDispose(() => {
+    windowStatsWorker.terminate();
+  });
 
   async function bootstrap(): Promise<void> {
     if (data.value) {
@@ -327,6 +396,9 @@ export const useVisualizationStore = defineStore('visualization', () => {
     machineFilterKey,
     isZoomed,
     windowMachineStats,
+    windowStatsPending,
+    windowStatsWorkerEnabled,
+    windowStatsWorkerError,
     selectedMachineStat,
     hasActiveHeatmapFilter,
     hasScopeFilter,
