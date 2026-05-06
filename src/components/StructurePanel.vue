@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTooltip } from '../composables/useTooltip';
 import { renderIcicle, renderScatter, renderCorrelationMatrix } from '../core/draw/structure';
+import { detectWebGLCapability, evaluateScatterWebGL, type WebGLAssessment, type WebGLCapability } from '../core/rendering-strategy';
 import { useVisualizationStore } from '../stores/visualization';
 import type { MetricId } from '../core/types';
 import { METRIC_META } from '../core/constants';
@@ -17,8 +18,35 @@ const correlationCanvasRef = ref<HTMLCanvasElement | null>(null);
 const scatterCaption = ref('');
 const scatterPair = ref<[MetricId, MetricId]>(['cpu', 'memory']);
 const showCorrelation = ref(true);
+const webglCapability = ref<WebGLCapability>({
+  available: false,
+  version: 'none',
+  maxTextureSize: 0,
+  renderer: null
+});
+const scatterWebGLAssessment = ref<WebGLAssessment | null>(null);
 
 const hasDomainScope = computed(() => Boolean(store.activeDomainId));
+const scatterRendererBadge = computed(() => {
+  const assessment = scatterWebGLAssessment.value;
+  if (!assessment) {
+    return '评估中';
+  }
+  return assessment.recommendedRenderer === 'd3-svg' ? 'D3/SVG' : 'WebGL';
+});
+const scatterRendererTitle = computed(() => {
+  const assessment = scatterWebGLAssessment.value;
+  if (!assessment) {
+    return '正在评估散点图渲染策略';
+  }
+  return [
+    `渲染点数 ${assessment.renderedPrimitiveCount}`,
+    `候选点数 ${assessment.candidatePrimitiveCount}`,
+    `风险 ${assessment.riskLevel}`,
+    `WebGL ${webglCapability.value.available ? webglCapability.value.version : '不可用'}`,
+    ...assessment.reasons
+  ].join('；');
+});
 
 function clearDomain(): void {
   store.setActiveDomain(null);
@@ -29,6 +57,11 @@ function redrawScatter(): void {
   if (!svg) {
     return;
   }
+  scatterWebGLAssessment.value = evaluateScatterWebGL({
+    renderedPointCount: store.windowMachineStats.length,
+    candidatePointCount: store.data?.manifest.machineCount,
+    webgl: webglCapability.value
+  });
   scatterCaption.value = renderScatter(
     svg,
     {
@@ -121,6 +154,7 @@ watch(scatterPair, () => {
 });
 
 onMounted(() => {
+  webglCapability.value = detectWebGLCapability();
   if (containerRef.value) {
     resizeObserver = new ResizeObserver(() => redrawAll());
     resizeObserver.observe(containerRef.value);
@@ -162,6 +196,9 @@ onBeforeUnmount(() => {
         </div>
         <div style="display: flex; align-items: baseline; gap: 12px;">
           <span class="caption">{{ scatterCaption }}</span>
+          <span class="renderer-badge" :class="`risk-${scatterWebGLAssessment?.riskLevel ?? 'low'}`" :title="scatterRendererTitle">
+            {{ scatterRendererBadge }}
+          </span>
           <button
             class="domain-clear"
             type="button"
@@ -231,6 +268,31 @@ onBeforeUnmount(() => {
 .sub-header .caption {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.renderer-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 0.72rem;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.renderer-badge.risk-medium {
+  color: #73510f;
+  background: #fff7db;
+  border-color: #e7cc74;
+}
+
+.renderer-badge.risk-high {
+  color: #7c2d2d;
+  background: #fff1f1;
+  border-color: #efb8b8;
 }
 
 .chart-svg {
