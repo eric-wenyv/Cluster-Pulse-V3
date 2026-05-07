@@ -11,6 +11,7 @@ import {
   drawMinimapBrush,
   locateHeatmapCell
 } from '../core/draw/heatmap';
+import { fadeCanvasFromSnapshot, snapshotCanvas } from '../core/draw/transitions';
 import type { MetricId } from '../core/types';
 import { formatPercent, formatWindow, gridValue } from '../core/utils';
 import { useVisualizationStore } from '../stores/visualization';
@@ -37,6 +38,8 @@ let overlayFrame = 0;
 
 const heatmapBaseCache = new Map<string, HTMLCanvasElement>();
 const paletteCache = new Map<MetricId, Array<[number, number, number, number]>>();
+let detailFadeFrame = 0;
+let minimapFadeFrame = 0;
 
 function getPalette(metricId: MetricId): Array<[number, number, number, number]> {
   const cached = paletteCache.get(metricId);
@@ -143,6 +146,21 @@ function redrawDetail(): void {
   );
 }
 
+function redrawDetailWithFade(): void {
+  const canvas = detailBaseRef.value;
+  if (!canvas) {
+    redrawDetail();
+    return;
+  }
+  if (detailFadeFrame) {
+    window.cancelAnimationFrame(detailFadeFrame);
+    detailFadeFrame = 0;
+  }
+  const snapshot = snapshotCanvas(canvas);
+  redrawDetail();
+  detailFadeFrame = fadeCanvasFromSnapshot(canvas, snapshot, () => redrawDetail());
+}
+
 function redrawMinimap(): void {
   const data = store.data;
   const grid = store.grid;
@@ -161,6 +179,21 @@ function redrawMinimap(): void {
     heatmapBaseCache,
     getPalette
   );
+}
+
+function redrawMinimapWithFade(): void {
+  const canvas = minimapBaseRef.value;
+  if (!canvas) {
+    redrawMinimap();
+    return;
+  }
+  if (minimapFadeFrame) {
+    window.cancelAnimationFrame(minimapFadeFrame);
+    minimapFadeFrame = 0;
+  }
+  const snapshot = snapshotCanvas(canvas);
+  redrawMinimap();
+  minimapFadeFrame = fadeCanvasFromSnapshot(canvas, snapshot, () => redrawMinimap());
 }
 
 function redrawDetailOverlay(): void {
@@ -591,8 +624,8 @@ let resizeObserver: ResizeObserver | null = null;
 watch(
   () => [store.metricId, store.activeDomainId, store.visibleMachineIndices, store.grid, store.machineFilterKey] as const,
   () => {
-    redrawDetail();
-    redrawMinimap();
+    redrawDetailWithFade();
+    redrawMinimapWithFade();
     redrawDetailHatching();
     redrawMinimapHatching();
     requestDetailOverlayDraw();
@@ -647,6 +680,14 @@ onBeforeUnmount(() => {
   if (overlayFrame) {
     window.cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
+  }
+  if (detailFadeFrame) {
+    window.cancelAnimationFrame(detailFadeFrame);
+    detailFadeFrame = 0;
+  }
+  if (minimapFadeFrame) {
+    window.cancelAnimationFrame(minimapFadeFrame);
+    minimapFadeFrame = 0;
   }
   resizeObserver?.disconnect();
   resizeObserver = null;

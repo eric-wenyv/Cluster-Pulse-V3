@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { METRIC_META, METRIC_ORDER } from '../constants';
 import type { AppData, AppState, GridData, MachineRecord, MetricId } from '../types';
 import { formatTime, gridValue } from '../utils';
+import { fadeInSvg } from './transitions';
 
 export function renderMachineDetail(
   container: HTMLElement,
@@ -71,4 +72,5 @@ function drawMetricLine(
     .attr('class', 'axis')
     .attr('transform', 'translate(42, 0)')
     .call(d3.axisLeft(y).ticks(3).tickFormat((value) => `${value}%`));
+  fadeInSvg(svgNode);
 }
