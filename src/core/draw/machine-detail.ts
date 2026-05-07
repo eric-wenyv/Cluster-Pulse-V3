@@ -1,7 +1,6 @@
 import { METRIC_META, METRIC_ORDER } from '../constants';
 import type { AppData, AppState, GridData, MachineRecord } from '../types';
 import { formatTime, gridValue } from '../utils';
-import { fadeInSvg } from './transitions';
 
 export function renderMachineDetail(
   container: HTMLElement,
