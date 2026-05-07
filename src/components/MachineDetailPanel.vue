@@ -7,7 +7,7 @@ import { useVisualizationStore } from '../stores/visualization';
 const store = useVisualizationStore();
 
 const containerRef = ref<HTMLElement | null>(null);
-const multiplesRef = ref<HTMLDivElement | null>(null);
+const chartWrapperRef = ref<HTMLDivElement | null>(null);
 
 const activeMachine = computed<MachineRecord | null>(() => {
   const data = store.data;
@@ -47,7 +47,7 @@ const subtitle = computed(() => {
 function redraw(): void {
   const data = store.data;
   const grid = store.grid;
-  const container = multiplesRef.value;
+  const container = chartWrapperRef.value;
   const machine = activeMachine.value;
   if (!data || !grid || !container || !machine) {
     if (container && (!data || !grid || !machine)) {
@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
       </div>
       <span class="subtitle">{{ subtitle }}</span>
     </div>
-    <div ref="multiplesRef" class="small-multiples" />
+    <div ref="chartWrapperRef" class="horizon-wrapper" />
   </section>
 </template>
 
@@ -145,37 +145,9 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
 }
 
-.small-multiples {
-  display: grid;
-  grid-template-rows: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+.horizon-wrapper {
+  flex: 1;
   min-height: 0;
-}
-
-:deep(.small-metric) {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface-soft);
-  min-height: 0;
-}
-
-:deep(.small-metric .label) {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-:deep(.small-metric svg) {
-  width: 100%;
-  height: 100%;
-  display: block;
-  min-height: 0;
+  position: relative;
 }
 </style>
