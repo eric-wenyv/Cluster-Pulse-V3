@@ -15,6 +15,7 @@ import { fadeCanvasFromSnapshot, snapshotCanvas } from '../core/draw/transitions
 import type { MetricId } from '../core/types';
 import { formatPercent, formatWindow, gridValue } from '../core/utils';
 import { useVisualizationStore } from '../stores/visualization';
+import { generateDagThumbnailSvg } from '../core/draw/dag-thumbnail';
 
 const store = useVisualizationStore();
 const tooltip = useTooltip();
@@ -34,6 +35,10 @@ const heatmapDragStart = ref<{ clientX: number; clientY: number; binIndex: numbe
 const heatmapDragCurrent = ref<{ binIndex: number; rowIndex: number; machineIndex: number } | null>(null);
 const heatmapDragging = ref(false);
 const ctrlHoverOnSelection = ref(false);
+const tooltipVisible = ref(false);
+const tooltipHtml = ref('');
+const tooltipX = ref(0);
+const tooltipY = ref(0);
 let overlayFrame = 0;
 
 const heatmapBaseCache = new Map<string, HTMLCanvasElement>();
@@ -375,7 +380,7 @@ function onPointerMove(event: PointerEvent): void {
       hoverMachineIndex.value = null;
       requestDetailOverlayDraw();
     }
-    tooltip.hide();
+      tooltipVisible.value = false;
     return;
   }
   hoverMachineIndex.value = hovered.machineIndex;
@@ -383,17 +388,18 @@ function onPointerMove(event: PointerEvent): void {
   const value = gridValue(grid, store.metricId, hovered.binIndex, hovered.machineIndex);
   requestDetailOverlayDraw();
   if (value === null) {
-    tooltip.hide();
+      tooltipVisible.value = false;
     return;
   }
-  tooltip.show(
-    event.clientX,
-    event.clientY,
-    `<strong>${machine.machineId}</strong><br />FD-${machine.failureDomain1} · ${formatWindow(
-      [hovered.binIndex, hovered.binIndex],
-      data.manifest.binSeconds
-    )}<br />${METRIC_META[store.metricId].label}: ${formatPercent(value)}`
-  );
+    tooltipHtml.value = `<strong>${machine.machineId}</strong><br />FD-${machine.failureDomain1} · ${formatWindow(
+    [hovered.binIndex, hovered.binIndex],
+    data.manifest.binSeconds
+  )}<br />${METRIC_META[store.metricId].label}: ${formatPercent(value)}`;
+  tooltipX.value = event.clientX;
+  tooltipY.value = event.clientY;
+    const dagSvg = generateDagThumbnailSvg(machine, hovered.binIndex, store.timeWindow);
+    tooltipHtml.value += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由DAG上5个相邻task推动</span>${dagSvg}`;
+  tooltipVisible.value = true;
 }
 
 function onPointerLeave(): void {
@@ -755,6 +761,12 @@ onBeforeUnmount(() => {
         <div class="legend-labels"><span>0%</span><span>50%</span><span>100%</span></div>
       </div>
     </div>
+        <div
+      class="dag-tooltip"
+      :class="{ 'is-visible': tooltipVisible }"
+      :style="{ left: tooltipX + 'px', top: tooltipY + 'px' }"
+      v-html="tooltipHtml"
+    />
   </section>
 </template>
 
@@ -924,5 +936,27 @@ onBeforeUnmount(() => {
 
 .zoom-back-button:hover {
   background: var(--line);
+}
+.dag-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.94);
+  color: #f1f5f9;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-width: 260px;
+  opacity: 0;
+  transform: translate(12px, 12px);
+  transition: opacity 0.1s;
+}
+.dag-tooltip.is-visible {
+  opacity: 1;
+}
+.dag-tooltip svg {
+  display: block;
+  margin: 6px auto 0;
 }
 </style>
