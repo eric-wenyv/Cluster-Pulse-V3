@@ -270,9 +270,6 @@ export const useVisualizationStore = defineStore('visualization', () => {
     zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
-    if (data.value) {
-      timeWindow.value = [0, data.value.manifest.binCount - 1];
-    }
   }
 
   function toggleDomain(domainId: string): void {
