@@ -150,6 +150,7 @@ input {
 
 .tooltip {
   position: fixed;
+    display: block !important;
   z-index: 40;
   max-width: 280px;
   padding: 10px 12px;
