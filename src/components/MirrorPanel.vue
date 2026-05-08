@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="containerRef" class="panel mirror-panel">
     <div class="panel-header">
-      <span>在线 vs 批处理混部 Mirror Chart</span>
+      <span>在线 vs 批处理混部</span>
       <span class="legend-badges">
         <span class="badge"><span class="badge-dot" style="background-color: #178f8f"></span>在线容器 ▲</span>
         <span class="badge"><span class="badge-dot" style="background-color: #d66d2e"></span>批处理任务 ▼</span>
