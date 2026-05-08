@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "data": "python3 scripts/build_data.py --input-root data/raw --fallback-root data/raw-sample --output-root public/data",
-    "data:sample": "bash scripts/download_alibaba.sh sample && npm run data",
+    "data:sample": "bash scripts/download_alibaba.sh sample data/raw-sample 5000000 && npm run data",
     "check:data": "python3 scripts/verify_data.py public/data",
     "build": "npm run check:data && tsc --noEmit && vite build",
     "preview": "vite preview"

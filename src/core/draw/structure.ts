@@ -60,23 +60,40 @@ export function renderScatter(
   
   const rFixed = 4;
 
-  // Density contours
-  const density = d3.contourDensity<WindowMachineStat>()
-    .x(d => x(d.averages[xMetric]))
-    .y(d => y(d.averages[yMetric]))
-    .size([width, height])
-    .bandwidth(15)
-    .thresholds(10)
-    (stats);
+  // Continuous density background using radial-gradient blobs on a canvas
+  const densityCanvas = document.createElement('canvas');
+  densityCanvas.width = width;
+  densityCanvas.height = height;
+  const dCtx = densityCanvas.getContext('2d');
+  if (dCtx) {
+    const accent = METRIC_META[state.metricId].accent; // e.g. '#ff8c42'
+    // Parse hex to rgb
+    const r = parseInt(accent.slice(1, 3), 16);
+    const g = parseInt(accent.slice(3, 5), 16);
+    const b = parseInt(accent.slice(5, 7), 16);
+    const radius = 28; // kernel radius in px
+    const maxAlpha = 0.018; // per-point peak alpha
 
-  svg.append('g')
-    .attr('class', 'contours')
-    .selectAll('path')
-    .data(density)
-    .join('path')
-    .attr('fill', `${METRIC_META[state.metricId].accent}`)
-    .attr('fill-opacity', d => Math.min(0.8, d.value * 100)) // scale opacity
-    .attr('d', d3.geoPath());
+    for (const stat of stats) {
+      const cx = x(stat.averages[xMetric]);
+      const cy = y(stat.averages[yMetric]);
+      const grad = dCtx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      grad.addColorStop(0, `rgba(${r},${g},${b},${maxAlpha})`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      dCtx.fillStyle = grad;
+      dCtx.beginPath();
+      dCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+      dCtx.fill();
+    }
+
+    svg.insert('image', ':first-child')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', width)
+      .attr('height', height)
+      .attr('preserveAspectRatio', 'none')
+      .attr('href', densityCanvas.toDataURL());
+  }
 
   // Axes
   svg
@@ -176,19 +193,14 @@ export function renderIcicle(
     rootData.children.push(fd1Node);
     const fd2Group = d3.group(fd1Stats, d => d.machine.failureDomain2);
     for (const [fd2, fd2Stats] of fd2Group) {
-      const fd2Node: any = { name: fd2, type: 'fd2', domainId: fd1, children: [] };
+      const fd2Node: any = {
+        name: fd2,
+        type: 'fd2',
+        domainId: fd1,
+        value: fd2Stats.length,
+        peak: d3.max(fd2Stats, d => d.peaks[state.metricId]) ?? 0
+      };
       fd1Node.children.push(fd2Node);
-      for (const stat of fd2Stats) {
-        fd2Node.children.push({
-          name: stat.machine.machineId,
-          type: 'machine',
-          domainId: fd1,
-          value: 1,
-          peak: stat.peaks[state.metricId],
-          machineIndex: stat.machineIndex
-        });
-      }
-      fd2Node.peak = d3.max(fd2Stats, d => d.peaks[state.metricId]) ?? 0;
     }
     fd1Node.peak = d3.max(fd1Stats, d => d.peaks[state.metricId]) ?? 0;
   }
@@ -196,8 +208,9 @@ export function renderIcicle(
   const root = d3.hierarchy<any>(rootData).sum(d => d.value || 0);
   const partitionRoot = d3.partition<any>().size([width, height])(root);
 
-  // We have 3 layers. 
-  // Let's use custom Y for fixed layout: topH for FD1, bottom for FD2
+  // Two layers: FD1 on top, FD2 on bottom.
+  // FD2 nodes are now leaves (value = machine count), so partition allocates
+  // space directly by aggregate width rather than per-machine slivers.
   const topH = height * 0.38;
   const fd1Nodes = partitionRoot.descendants().filter(d => d.depth === 1);
   const fd2Nodes = partitionRoot.descendants().filter(d => d.depth === 2);
@@ -209,9 +222,9 @@ export function renderIcicle(
     .join('rect')
     .attr('x', d => d.x0)
     .attr('y', 0)
-    .attr('width', d => Math.max(0, d.x1 - d.x0 - 1))
+    .attr('width', d => Math.max(0.5, d.x1 - d.x0 - 0.5))
     .attr('height', topH)
-    .attr('rx', 3)
+    .attr('rx', d => (d.x1 - d.x0) > 6 ? 3 : 0)
     .attr('fill', d => {
        const isActive = state.activeDomainId === d.data.domainId;
        return isActive ? METRIC_META[state.metricId].accent : `${METRIC_META[state.metricId].accent}35`;
@@ -244,9 +257,9 @@ export function renderIcicle(
     .join('rect')
     .attr('x', d => d.x0)
     .attr('y', topH + 4)
-    .attr('width', d => Math.max(0, d.x1 - d.x0 - 1))
+    .attr('width', d => Math.max(0.5, d.x1 - d.x0 - 0.5))
     .attr('height', height - topH - 8)
-    .attr('rx', 2)
+    .attr('rx', d => (d.x1 - d.x0) > 4 ? 2 : 0)
     .attr('fill', d => {
        const heat = d.data.peak / 100;
        return `rgba(${255*heat|0}, ${60+(1-heat)*100|0}, 50, ${0.5+heat*0.4})`;

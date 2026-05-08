@@ -68,8 +68,8 @@ export function renderMethodologyMarkup(data: AppData, leadHighlight: Hotspot | 
     <p>
       性能方面引入了双重护栏：一是 Web Worker -backed 窗口统计，把扫描 <code>machine-grid.bin</code> 和计算四指标均值/峰值的工作 offload 到独立线程，
       主线程只接收序列化后的 <code>WindowMachineStat[]</code>；二是 WebGL 渲染策略评估，在散点图重绘前根据当前点数、候选点数和浏览器 WebGL 能力判断继续用 D3/SVG 还是切到 WebGL 兜底路径。
-      当前 sample 模式下可见机器被限制在 Top 48，散点图点数远低于 SVG 安全上限（3,000），因此仍使用 D3/SVG；
-      该护栏为未来取消限制或切换到 full 数据集时保留了平滑的渲染迁移路径。
+      当前模式下所有可见机器均参与渲染，散点图点数（734 台机器）仍在 SVG 安全上限（3,000）以内，因此仍使用 D3/SVG；
+      该护栏为未来数据量进一步增长时保留了平滑的渲染迁移路径。
     </p>
     <h3>外部资源引用</h3>
     <p>
