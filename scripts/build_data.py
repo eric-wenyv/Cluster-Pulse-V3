@@ -720,20 +720,53 @@ def build_batch_task_dag(
     start_bin = default_window["startBin"]
     end_bin = default_window["endBin"]
 
-    # Build the global DAG from all scored tasks so the frontend can filter by
-    # any hover time window without needing per-window layouts.
-    scored_tasks = [
-        task
-        for key, task in tasks.items()
-        if task_scores.get(key, 0) > 0
-    ]
-    scored_tasks.sort(key=lambda task: (-task_scores.get((task["job_name"], task["task_name"]), 0), task["start_bin"], task["job_name"], task["task_name"]))
-    selected = scored_tasks[:BATCH_DAG_NODE_LIMIT]
+    # Build the global DAG from scored tasks.
+    # Selection strategy: cap at 3 tasks per job, prioritize jobs with multiple tasks
+    # so that the thumbnail shows dense connected components instead of singletons.
+    MAX_PER_JOB = 3
+    scored_by_job: Dict[str, List[Tuple[dict, float]]] = defaultdict(list)
+    for key, task in tasks.items():
+        score = task_scores.get(key, 0)
+        if score > 0:
+            scored_by_job[task["job_name"]].append((task, score))
 
-    # Build edges for selected tasks (global edges filtered to selected set)
-    all_edges = _parse_task_edges(tasks)
+    # Sort tasks within each job by score desc
+    for job_name in scored_by_job:
+        scored_by_job[job_name].sort(key=lambda x: -x[1])
+
+    # Prepare job candidates: (job_name, total_score, has_multiple, top_tasks)
+    job_candidates = []
+    for job_name, task_list in scored_by_job.items():
+        total_score = sum(s for _, s in task_list)
+        has_multiple = 1 if len(task_list) >= 2 else 0
+        top_tasks = task_list[:MAX_PER_JOB]
+        job_candidates.append((job_name, total_score, has_multiple, top_tasks))
+
+    # Sort by: has_multiple desc, total_score desc
+    job_candidates.sort(key=lambda x: (x[2], x[1]), reverse=True)
+
+    selected: List[dict] = []
+    for job_name, total_score, has_multiple, top_tasks in job_candidates:
+        for task, score in top_tasks:
+            selected.append(task)
+        if len(selected) >= BATCH_DAG_NODE_LIMIT:
+            break
+    selected = selected[:BATCH_DAG_NODE_LIMIT]
+
+    # Build edges: fully connect selected tasks within the same job
     selected_ids = {f"{t['job_name']}:{t['task_name']}" for t in selected}
-    filtered_edges = [(src, tgt) for src, tgt in all_edges if src in selected_ids and tgt in selected_ids]
+    job_selected: Dict[str, List[str]] = defaultdict(list)
+    for task in selected:
+        job_selected[task["job_name"]].append(f"{task['job_name']}:{task['task_name']}")
+
+    filtered_edges: List[Tuple[str, str]] = []
+    for job_name, node_ids_in_job in job_selected.items():
+        if len(node_ids_in_job) < 2:
+            continue
+        # Fully connect all selected nodes in this job
+        for i in range(len(node_ids_in_job)):
+            for j in range(i + 1, len(node_ids_in_job)):
+                filtered_edges.append((node_ids_in_job[i], node_ids_in_job[j]))
 
     # Force-directed layout precomputation
     node_ids = [f"{t['job_name']}:{t['task_name']}" for t in selected]

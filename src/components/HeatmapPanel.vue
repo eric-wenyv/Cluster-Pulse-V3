@@ -402,7 +402,7 @@ function onPointerMove(event: PointerEvent): void {
 
   const dagResult = generateDagThumbnailSvg(store.taskDag, hovered.binIndex, store.timeWindow);
   if (dagResult) {
-    tooltipHtml.value += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由 DAG 上 ${dagResult.adjacentTaskCount} 个相邻 task 推动</span>${dagResult.svgHtml}`;
+    tooltipHtml.value += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由 ${dagResult.adjacentTaskCount} 个相邻 task 推动</span>${dagResult.svgHtml}`;
   }
 
   tooltipVisible.value = true;

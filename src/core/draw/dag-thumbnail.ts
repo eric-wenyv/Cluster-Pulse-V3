@@ -52,9 +52,12 @@ export function generateDagThumbnailSvg(
 
   const activeIds = new Set(activeNodes.map((n) => n.id));
 
-  // Compute per-window resource scores among active nodes
+  // Re-normalize resource scores among active nodes in this window
+  // so size differences are visible even when global scores are skewed.
   const scores = activeNodes.map((n) => n.resourceScore);
+  const minScore = Math.min(...scores);
   const maxScore = Math.max(...scores, 0.0001);
+  const scoreRange = maxScore - minScore || 1;
 
   // Build SVG parts using array join for speed
   const parts: string[] = [];
@@ -87,7 +90,8 @@ export function generateDagThumbnailSvg(
   for (const node of activeNodes) {
     const cx = PADDING + node.x * (THUMB_SIZE - PADDING * 2);
     const cy = PADDING + node.y * (THUMB_SIZE - PADDING * 2);
-    const radius = MIN_NODE_RADIUS + (node.resourceScore / maxScore) * (MAX_NODE_RADIUS - MIN_NODE_RADIUS);
+    const windowNormalized = (node.resourceScore - minScore) / scoreRange;
+    const radius = MIN_NODE_RADIUS + windowNormalized * (MAX_NODE_RADIUS - MIN_NODE_RADIUS);
     const color = getMetricColor(node.type);
     parts.push(
       `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radius.toFixed(1)}" fill="${color}" opacity="0.9"/>`
