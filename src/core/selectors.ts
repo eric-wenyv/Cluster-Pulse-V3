@@ -63,7 +63,7 @@ export function getVisibleMachineIndices(params: {
 
   return {
     cacheKey,
-    visibleMachineIndices: allVisible.length > 48 ? allVisible.slice(0, 48) : allVisible,
+    visibleMachineIndices: allVisible,
     machineMetricPeaks: resolvedPeaks
   };
 }

@@ -66,19 +66,31 @@ function drawHorizonChart(
   const bandTotal = (plotHeight - betweenGap * (METRIC_ORDER.length - 1)) / METRIC_ORDER.length;
   const subH = bandTotal / bands;
 
-  const binCount = data.manifest.binCount;
   const binSeconds = data.manifest.binSeconds;
   const [windowStart, windowEnd] = state.timeWindow;
+  const visibleBinCount = windowEnd - windowStart + 1;
+
+  if (visibleBinCount <= 0) {
+    return;
+  }
+
+  // Helper to map a bin index to x pixel within the visible window
+  const binToPx = (bin: number) => {
+    if (visibleBinCount <= 1) {
+      return leftPad + plotWidth / 2;
+    }
+    return leftPad + ((bin - windowStart) / (visibleBinCount - 1)) * plotWidth;
+  };
 
   // Draw each metric
   METRIC_ORDER.forEach((metricId, mi) => {
     const bandBase = topPad + mi * (bandTotal + betweenGap);
     const accent = METRIC_META[metricId].accent;
 
-    // Read values (0–100 or null)
+    // Read only values within the visible window
     const values: (number | null)[] = Array.from(
-      { length: binCount },
-      (_, index) => gridValue(grid, metricId, index, machine.index)
+      { length: visibleBinCount },
+      (_, index) => gridValue(grid, metricId, windowStart + index, machine.index)
     );
 
     // Draw 3 bands
@@ -90,15 +102,15 @@ function drawHorizonChart(
       // Find continuous segments of defined values exceeding this band
       let segmentStart = -1;
 
-      for (let i = 0; i <= binCount; i++) {
-        const v = i < binCount ? values[i] : null;
+      for (let i = 0; i <= visibleBinCount; i++) {
+        const v = i < visibleBinCount ? values[i] : null;
         const inBand = v !== null && v > low * 100;
 
         if (inBand && segmentStart === -1) {
           segmentStart = i;
         }
 
-        if ((!inBand || i === binCount) && segmentStart !== -1) {
+        if ((!inBand || i === visibleBinCount) && segmentStart !== -1) {
           ctx.fillStyle = accent;
           ctx.globalAlpha = alpha;
           ctx.beginPath();
@@ -109,7 +121,7 @@ function drawHorizonChart(
             const normalized = vj / 100;
             const clipV = Math.min(normalized, high);
             const frac = (clipV - low) / (1 / bands);
-            const px = leftPad + (j / (binCount - 1)) * plotWidth;
+            const px = binToPx(windowStart + j);
             const py = bandBase + subH * (bands - 1 - b) + subH * (1 - frac);
 
             if (!started) {
@@ -123,8 +135,8 @@ function drawHorizonChart(
           // Close path along the bottom of this band
           if (started) {
             const bottomY = bandBase + subH * (bands - b);
-            const lastPx = leftPad + ((i - 1) / (binCount - 1)) * plotWidth;
-            const firstPx = leftPad + (segmentStart / (binCount - 1)) * plotWidth;
+            const lastPx = binToPx(windowStart + i - 1);
+            const firstPx = binToPx(windowStart + segmentStart);
 
             ctx.lineTo(lastPx, bottomY);
             ctx.lineTo(firstPx, bottomY);
@@ -157,15 +169,26 @@ function drawHorizonChart(
     }
   });
 
-  // Shared X axis
+  // Shared X axis (dynamic ticks based on visible window)
   ctx.fillStyle = '#5f6b7b';
   ctx.font = '10px "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
-  const tickValues = [0, 192, 384, 576, 767];
+  // Generate ticks aligned to days within the visible window
+  const tickValues: number[] = [];
+  const dayBins = 96; // 15 min bins per day
+  const firstDayStart = Math.ceil(windowStart / dayBins) * dayBins;
+  for (let tick = firstDayStart; tick <= windowEnd; tick += dayBins) {
+    tickValues.push(tick);
+  }
+  // Always include window start if no other ticks
+  if (tickValues.length === 0 || tickValues[0] > windowStart + dayBins * 0.5) {
+    tickValues.unshift(windowStart);
+  }
+
   tickValues.forEach((tick) => {
-    const px = leftPad + (tick / (binCount - 1)) * plotWidth;
+    const px = binToPx(tick);
     const label = formatTime(tick * binSeconds);
     ctx.fillText(label, px, height - bottomPad + 6);
 
@@ -184,21 +207,4 @@ function drawHorizonChart(
   ctx.moveTo(leftPad, height - bottomPad);
   ctx.lineTo(width - rightPad, height - bottomPad);
   ctx.stroke();
-
-  // Brush highlight
-  if (
-    windowStart !== undefined &&
-    windowEnd !== undefined &&
-    binCount > 1
-  ) {
-    const x1 = leftPad + (windowStart / (binCount - 1)) * plotWidth;
-    const x2 = leftPad + ((windowEnd + 1) / (binCount - 1)) * plotWidth;
-
-    ctx.fillStyle = 'rgba(31, 75, 143, 0.06)';
-    ctx.fillRect(x1, topPad, x2 - x1, plotHeight);
-
-    ctx.strokeStyle = 'rgba(31, 75, 143, 0.25)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x1, topPad, x2 - x1, plotHeight);
-  }
 }

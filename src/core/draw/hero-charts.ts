@@ -144,43 +144,48 @@ export function renderMirrorChart(
   svg.attr('viewBox', `0 0 ${width} ${height}`);
 
   const binCount = data.manifest.binCount;
-  
+  const [winStart, winEnd] = state.timeWindow;
+
+  // Slice data to the current time window
+  const visibleContainer = containerSeries.slice(winStart, winEnd + 1);
+  const visibleBatch = batchSeries.slice(winStart, winEnd + 1);
+
   const x = d3.scaleLinear()
-    .domain([0, binCount - 1])
+    .domain([winStart, winEnd])
     .range([0, width]);
 
   const midY = height / 2;
-  
-  const maxContainer = d3.max(containerSeries) || 1;
+
+  const maxContainer = d3.max(visibleContainer) || 1;
   const yContainer = d3.scaleLinear()
     .domain([0, maxContainer])
     .range([midY, 0]);
 
-  const maxBatch = d3.max(batchSeries) || 100;
+  const maxBatch = d3.max(visibleBatch) || 100;
   const yBatch = d3.scaleLinear()
     .domain([0, maxBatch])
     .range([midY, height]);
 
   const areaContainer = d3.area<number>()
-    .x((_, i) => x(i))
+    .x((_, i) => x(winStart + i))
     .y0(midY)
     .y1(d => yContainer(d))
     .curve(d3.curveMonotoneX);
 
   const areaBatch = d3.area<number>()
-    .x((_, i) => x(i))
+    .x((_, i) => x(winStart + i))
     .y0(midY)
     .y1(d => yBatch(d))
     .curve(d3.curveMonotoneX);
 
   svg.append('path')
-    .datum(containerSeries)
+    .datum(visibleContainer)
     .attr('fill', '#178f8f')
     .attr('opacity', 0.85)
     .attr('d', areaContainer);
 
   svg.append('path')
-    .datum(batchSeries)
+    .datum(visibleBatch)
     .attr('fill', '#d66d2e')
     .attr('opacity', 0.85)
     .attr('d', areaBatch);
@@ -195,15 +200,15 @@ export function renderMirrorChart(
     .attr('stroke-width', 1.5)
     .attr('opacity', 0.8);
 
-  // Add day markers
+  // Day markers (only show those inside the current window)
   const axisGroup = svg.append('g').attr('class', 'axis-days');
-  const ticks = [];
-  for (let i = 0; i < binCount; i += 96) { // 96 bins = 1 day (15m bins)
-    ticks.push(i);
+  const dayBins = [];
+  for (let i = 0; i < binCount; i += 96) {
+    dayBins.push(i);
   }
-  
-  ticks.forEach((tick, idx) => {
-    if (idx > 0) {
+
+  dayBins.forEach((tick, idx) => {
+    if (tick >= winStart && tick <= winEnd && idx > 0) {
       axisGroup.append('line')
         .attr('x1', x(tick))
         .attr('y1', 0)
@@ -211,7 +216,7 @@ export function renderMirrorChart(
         .attr('y2', height)
         .attr('stroke', 'var(--line)')
         .attr('stroke-dasharray', '2,2');
-        
+
       axisGroup.append('text')
         .attr('x', x(tick) + 4)
         .attr('y', height - 4)
@@ -221,20 +226,18 @@ export function renderMirrorChart(
     }
   });
 
-  // Brush overlay for timeWindow highlighting
-  if (state.timeWindow[0] !== 0 || state.timeWindow[1] !== binCount - 1) {
-    const brushGroup = svg.append('g');
-    brushGroup.append('rect')
-      .attr('x', x(state.timeWindow[0]))
-      .attr('y', 0)
-      .attr('width', x(state.timeWindow[1] + 1) - x(state.timeWindow[0]))
-      .attr('height', height)
-      .attr('fill', 'rgba(0, 0, 0, 0.05)')
-      .attr('stroke', 'rgba(0, 0, 0, 0.2)')
-      .attr('pointer-events', 'none');
-  }
+  // Vertical cursor line (dashed)
+  const cursorLine = svg.append('line')
+    .attr('class', 'cursor-line')
+    .attr('y1', 0)
+    .attr('y2', height)
+    .attr('stroke', 'var(--ink)')
+    .attr('stroke-dasharray', '3,3')
+    .attr('stroke-width', 1)
+    .attr('opacity', 0)
+    .attr('pointer-events', 'none');
 
-  // Invisible rect for tooltips
+  // Invisible rect for tooltips and cursor tracking
   svg.append('rect')
     .attr('width', width)
     .attr('height', height)
@@ -242,12 +245,17 @@ export function renderMirrorChart(
     .on('mousemove', (event) => {
       const [mouseX] = d3.pointer(event);
       const binIndex = Math.floor(x.invert(mouseX));
-      if (binIndex >= 0 && binIndex < binCount) {
+      if (binIndex >= winStart && binIndex <= winEnd) {
+        cursorLine
+          .attr('x1', mouseX)
+          .attr('x2', mouseX)
+          .attr('opacity', 0.6);
+
         const timeStr = formatTime(binIndex * data.manifest.binSeconds);
         const p99s = METRIC_ORDER.map(m => `${METRIC_META[m].label}: ${data.summary.metrics[m].p99[binIndex]}%`).join('<br/>');
         const cont = containerSeries[binIndex].toFixed(1);
         const b = batchSeries[binIndex].toFixed(1);
-        
+
         callbacks.showTooltip(
           event.clientX,
           event.clientY,
@@ -257,8 +265,14 @@ export function renderMirrorChart(
           `<hr style="border:0; border-top:1px solid rgba(255,255,255,0.2); margin:4px 0" />` +
           `<span style="font-size:0.85em; opacity:0.9">${p99s}</span>`
         );
+      } else {
+        cursorLine.attr('opacity', 0);
+        callbacks.hideTooltip();
       }
     })
-    .on('mouseleave', () => callbacks.hideTooltip());
+    .on('mouseleave', () => {
+      cursorLine.attr('opacity', 0);
+      callbacks.hideTooltip();
+    });
   fadeInSvg(svgNode);
 }

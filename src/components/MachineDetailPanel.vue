@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useTooltip } from '../composables/useTooltip';
 import { renderMachineDetail } from '../core/draw/machine-detail';
+import { METRIC_META } from '../core/constants';
 import type { MachineRecord } from '../core/types';
+import { formatTime, gridValue } from '../core/utils';
 import { useVisualizationStore } from '../stores/visualization';
 
 const store = useVisualizationStore();
+const tooltip = useTooltip();
 
 const containerRef = ref<HTMLElement | null>(null);
 const chartWrapperRef = ref<HTMLDivElement | null>(null);
+const cursorLineRef = ref<HTMLDivElement | null>(null);
 
 const activeMachine = computed<MachineRecord | null>(() => {
   const data = store.data;
@@ -70,6 +75,71 @@ function redraw(): void {
   );
 }
 
+function onMouseMove(event: MouseEvent): void {
+  const data = store.data;
+  const grid = store.grid;
+  const machine = activeMachine.value;
+  const wrapper = chartWrapperRef.value;
+  const cursor = cursorLineRef.value;
+  if (!data || !grid || !machine || !wrapper || !cursor) {
+    return;
+  }
+
+  const rect = wrapper.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const plotLeft = 32; // leftPad from drawHorizonChart
+  const plotRight = 8; // rightPad
+  const plotWidth = rect.width - plotLeft - plotRight;
+
+  if (x < plotLeft || x > rect.width - plotRight) {
+    cursor.style.opacity = '0';
+    tooltip.hide();
+    return;
+  }
+
+  const [winStart, winEnd] = store.timeWindow;
+  const visibleBinCount = winEnd - winStart + 1;
+  if (visibleBinCount <= 0) {
+    return;
+  }
+
+  const relativeX = (x - plotLeft) / plotWidth;
+  const binOffset = Math.max(0, Math.min(visibleBinCount - 1, Math.round(relativeX * (visibleBinCount - 1))));
+  const binIndex = winStart + binOffset;
+
+  // Position cursor line
+  const lineX = plotLeft + (binOffset / Math.max(1, visibleBinCount - 1)) * plotWidth;
+  cursor.style.left = `${lineX}px`;
+  cursor.style.opacity = '1';
+
+  // Build tooltip content
+  const timeStr = formatTime(binIndex * data.manifest.binSeconds);
+  const metricsHtml = (['cpu', 'memory', 'network', 'disk'] as const)
+    .map((m) => {
+      const val = gridValue(grid, m, binIndex, machine.index);
+      const meta = METRIC_META[m];
+      return val !== null
+        ? `<span style="color:${meta.accent}">${meta.label}</span>: ${val}%`
+        : `<span style="color:${meta.accent}">${meta.label}</span>: —`;
+    })
+    .join('<br/>');
+
+  tooltip.show(
+    event.clientX,
+    event.clientY,
+    `<strong>${machine.machineId}</strong><br/>` +
+    `<span style="color:var(--muted)">${timeStr}</span><br/>` +
+    `${metricsHtml}`
+  );
+}
+
+function onMouseLeave(): void {
+  if (cursorLineRef.value) {
+    cursorLineRef.value.style.opacity = '0';
+  }
+  tooltip.hide();
+}
+
 let resizeObserver: ResizeObserver | null = null;
 
 watch(
@@ -103,7 +173,10 @@ onBeforeUnmount(() => {
       </div>
       <span class="subtitle">{{ subtitle }}</span>
     </div>
-    <div ref="chartWrapperRef" class="horizon-wrapper" />
+    <div class="horizon-wrapper" @mousemove="onMouseMove" @mouseleave="onMouseLeave">
+      <div ref="chartWrapperRef" class="chart-area" />
+      <div ref="cursorLineRef" class="cursor-line" />
+    </div>
   </section>
 </template>
 
@@ -149,5 +222,22 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   position: relative;
+}
+
+.chart-area {
+  position: absolute;
+  inset: 0;
+}
+
+.cursor-line {
+  position: absolute;
+  top: 8px;
+  bottom: 28px;
+  width: 0;
+  border-left: 1px dashed var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+  z-index: 5;
 }
 </style>

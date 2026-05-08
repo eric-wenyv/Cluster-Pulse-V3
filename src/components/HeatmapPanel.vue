@@ -29,6 +29,8 @@ const minimapBaseRef = ref<HTMLCanvasElement | null>(null);
 const minimapHatchRef = ref<HTMLCanvasElement | null>(null);
 const minimapOverlayRef = ref<HTMLCanvasElement | null>(null);
 const legendGradientRef = ref<HTMLDivElement | null>(null);
+// Reference used in template for gradient element binding
+void legendGradientRef;
 
 const hoverMachineIndex = ref<number | null>(null);
 const heatmapDragStart = ref<{ clientX: number; clientY: number; binIndex: number; rowIndex: number; machineIndex: number } | null>(null);
@@ -397,8 +399,12 @@ function onPointerMove(event: PointerEvent): void {
   )}<br />${METRIC_META[store.metricId].label}: ${formatPercent(value)}`;
   tooltipX.value = event.clientX;
   tooltipY.value = event.clientY;
-    const dagSvg = generateDagThumbnailSvg(machine, hovered.binIndex, store.timeWindow);
-    tooltipHtml.value += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由DAG上5个相邻task推动</span>${dagSvg}`;
+
+  const dagResult = generateDagThumbnailSvg(store.taskDag, hovered.binIndex, store.timeWindow);
+  if (dagResult) {
+    tooltipHtml.value += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由 ${dagResult.adjacentTaskCount} 个相邻 task 推动</span>${dagResult.svgHtml}`;
+  }
+
   tooltipVisible.value = true;
 }
 
@@ -408,6 +414,7 @@ function onPointerLeave(): void {
   }
   hoverMachineIndex.value = null;
   ctrlHoverOnSelection.value = false;
+  tooltipVisible.value = false;
   const canvas = detailOverlayRef.value;
   if (canvas) {
     canvas.style.cursor = 'crosshair';

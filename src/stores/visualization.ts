@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
-import { loadBatchGrid, loadContainerGrid, loadGrid, loadInitialData } from '../core/data';
+import { loadBatchGrid, loadContainerGrid, loadGrid, loadInitialData, loadTaskDag } from '../core/data';
 import {
   getFilteredMachineIndices,
   getMachineFilterKey,
@@ -9,7 +9,7 @@ import {
   getWindowMachineStats,
   normalizeMachineFilter
 } from '../core/selectors';
-import type { AppData, BatchGrid, ContainerGrid, GridData, Hotspot, MetricId, WindowMachineStat } from '../core/types';
+import type { AppData, BatchGrid, ContainerGrid, GridData, Hotspot, MetricId, TaskDag, WindowMachineStat } from '../core/types';
 import { clampWindow, isFullWindow } from '../core/utils';
 import { WindowStatsWorkerClient } from '../core/window-stats-worker';
 
@@ -18,6 +18,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
   const grid = shallowRef<GridData | null>(null);
   const containerGrid = shallowRef<ContainerGrid | null>(null);
   const batchGrid = shallowRef<BatchGrid | null>(null);
+  const taskDag = shallowRef<TaskDag | null>(null);
   const metricId = ref<MetricId>('cpu');
   const timeWindow = ref<[number, number]>([0, 0]);
   const zoomedTimeWindow = ref<[number, number] | null>(null);
@@ -203,6 +204,12 @@ export const useVisualizationStore = defineStore('visualization', () => {
     selectedMachineIndex.value = lead?.machineIndex ?? null;
     machineFilterIndices.value = null;
     data.value = appData;
+    // Load DAG asynchronously after manifest is available
+    loadTaskDag(appData.manifest).then((dag) => {
+      taskDag.value = dag;
+    }).catch(() => {
+      taskDag.value = null;
+    });
   }
 
   async function ensureGrid(): Promise<void> {
@@ -263,9 +270,6 @@ export const useVisualizationStore = defineStore('visualization', () => {
     zoomStack.value = [];
     zoomedTimeWindow.value = null;
     brushTimeWindow.value = null;
-    if (data.value) {
-      timeWindow.value = [0, data.value.manifest.binCount - 1];
-    }
   }
 
   function toggleDomain(domainId: string): void {
@@ -381,6 +385,7 @@ export const useVisualizationStore = defineStore('visualization', () => {
     grid,
     containerGrid,
     batchGrid,
+    taskDag,
     metricId,
     timeWindow,
     zoomedTimeWindow,

@@ -30,18 +30,19 @@ onMounted(async () => {
 </script>
 
 <template>
-  <Tooltip />
-  <AppStatus v-if="errorMessage" :message="errorMessage" />
-  <div v-else-if="ready" ref="rootRef" class="viz-shell cockpit">
-    <StreamgraphPanel class="header-panel" />
-    <HeatmapPanel class="main-panel" />
-    <MirrorPanel class="mirror-panel" />
-    
-    <div class="right-panel">
-      <StructurePanel class="struct-panel" />
-      <MachineDetailPanel class="detail-panel" />
+  <Tooltip>
+    <AppStatus v-if="errorMessage" :message="errorMessage" />
+    <div v-else-if="ready" ref="rootRef" class="viz-shell cockpit">
+      <StreamgraphPanel class="header-panel" />
+      <HeatmapPanel class="main-panel" />
+      <MirrorPanel class="mirror-panel" />
+      
+      <div class="right-panel">
+        <StructurePanel class="struct-panel" />
+        <MachineDetailPanel class="detail-panel" />
+      </div>
+      
+      <HeaderBar class="footer-panel" />
     </div>
-    
-    <HeaderBar class="footer-panel" />
-  </div>
+  </Tooltip>
 </template>

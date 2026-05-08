@@ -161,7 +161,6 @@ input {
   font-size: 0.86rem;
   line-height: 1.5;
   pointer-events: none;
-  transform: translate(14px, 14px);
   opacity: 0;
   transition: opacity 80ms linear;
 }
