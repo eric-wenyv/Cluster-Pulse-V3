@@ -79,7 +79,8 @@ function redrawScatter(): void {
       hideTooltip: () => tooltip.hide(),
       onSelectMachine: (index) => store.setSelectedMachine(index)
     },
-    scatterPair.value
+    scatterPair.value,
+    store.taskDag
   );
 }
 

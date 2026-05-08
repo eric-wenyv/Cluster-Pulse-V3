@@ -1,8 +1,9 @@
 import * as d3 from 'd3';
 import { METRIC_META, METRIC_ORDER } from '../constants';
-import type { AppState, MetricId, WindowMachineStat } from '../types';
+import type { AppState, MetricId, TaskDag, WindowMachineStat } from '../types';
 import { computeSpearmanCorrelation, formatPercent } from '../utils';
 import { fadeInSvg } from './transitions';
+import { generateDagThumbnailSvg } from './dag-thumbnail';
 
 export type ScatterCallbacks = {
   showTooltip: (x: number, y: number, html: string) => void;
@@ -27,7 +28,8 @@ export function renderScatter(
   state: AppState,
   stats: WindowMachineStat[],
   callbacks: ScatterCallbacks,
-  scatterPair: [MetricId, MetricId]
+  scatterPair: [MetricId, MetricId],
+  taskDag: TaskDag | null
 ): string {
   const width = svgNode.clientWidth || svgNode.parentElement?.clientWidth || 480;
   const height = svgNode.clientHeight || 280;
@@ -121,15 +123,18 @@ export function renderScatter(
     .attr('stroke-width', (d) => (d.machineIndex === state.selectedMachineIndex ? 2.4 : 1))
     .style('cursor', 'pointer')
     .on('mouseenter', (event, datum) => {
-      callbacks.showTooltip(
-        event.clientX,
-        event.clientY,
-        `<strong>${datum.machine.machineId}</strong><br />FD-${datum.domainId}<br />${METRIC_META[xMetric].label} ${formatPercent(
-          datum.averages[xMetric]
-        )} · ${METRIC_META[yMetric].label} ${formatPercent(datum.averages[yMetric])}<br />${METRIC_META[state.metricId].label} 峰值 ${formatPercent(
-          datum.peaks[state.metricId]
-        )}`
-      );
+      let tooltipHtml = `<strong>${datum.machine.machineId}</strong><br />FD-${datum.domainId}<br />${METRIC_META[xMetric].label} ${formatPercent(
+        datum.averages[xMetric]
+      )} · ${METRIC_META[yMetric].label} ${formatPercent(datum.averages[yMetric])}<br />${METRIC_META[state.metricId].label} 峰值 ${formatPercent(
+        datum.peaks[state.metricId]
+      )}`;
+
+      const dagResult = generateDagThumbnailSvg(taskDag, state.timeWindow[0] + Math.floor((state.timeWindow[1] - state.timeWindow[0]) / 2), state.timeWindow);
+      if (dagResult) {
+        tooltipHtml += `<br /><span style="font-size:0.7rem;color:#94a3b8;">该高峰由 DAG 上 ${dagResult.adjacentTaskCount} 个相邻 task 推动</span>${dagResult.svgHtml}`;
+      }
+
+      callbacks.showTooltip(event.clientX, event.clientY, tooltipHtml);
     })
     .on('mouseleave', () => callbacks.hideTooltip())
     .on('click', (_, datum) => callbacks.onSelectMachine(datum.machineIndex));

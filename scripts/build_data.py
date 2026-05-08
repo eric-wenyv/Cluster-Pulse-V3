@@ -609,6 +609,109 @@ def build_batch_grid(batch_aggregated: List[bytearray], filtered_old_indices: Li
     return output
 
 
+def _parse_task_edges(tasks: Dict[Tuple[str, str], dict]) -> List[Tuple[str, str]]:
+    """Build edges by chaining tasks within the same job ordered by start_bin."""
+    edges: List[Tuple[str, str]] = []
+    job_tasks: Dict[str, List[dict]] = defaultdict(list)
+    for key, task in tasks.items():
+        job_tasks[task["job_name"]].append(task)
+    for job_name, job_task_list in job_tasks.items():
+        job_task_list.sort(key=lambda t: (t["start_bin"], t["task_name"]))
+        for i in range(1, len(job_task_list)):
+            prev_task = job_task_list[i - 1]
+            curr_task = job_task_list[i]
+            prev_id = f"{job_name}:{prev_task['task_name']}"
+            curr_id = f"{job_name}:{curr_task['task_name']}"
+            edges.append((prev_id, curr_id))
+    return edges
+
+
+def _force_directed_layout(
+    node_ids: List[str],
+    edges: List[Tuple[str, str]],
+    iterations: int = 120,
+    width: float = 1.0,
+    height: float = 1.0,
+) -> Dict[str, Tuple[float, float]]:
+    """Simplified Fruchterman-Reingold force-directed layout."""
+    import random
+
+    n = len(node_ids)
+    if n == 0:
+        return {}
+    if n == 1:
+        return {node_ids[0]: (0.5, 0.5)}
+
+    # Initialize with small random jitter around center to avoid symmetric stuck
+    random.seed(42)
+    positions: Dict[str, List[float]] = {}
+    for node_id in node_ids:
+        positions[node_id] = [0.4 + random.random() * 0.2, 0.4 + random.random() * 0.2]
+
+    # Build adjacency
+    adjacency: Dict[str, Set[str]] = {node_id: set() for node_id in node_ids}
+    for src, tgt in edges:
+        if src in adjacency and tgt in adjacency:
+            adjacency[src].add(tgt)
+            adjacency[tgt].add(src)
+
+    area = width * height
+    k = math.sqrt(area / n) * 0.8
+    temperature = width * 0.4
+    cooling = temperature / iterations
+
+    for _ in range(iterations):
+        # Repulsive forces
+        displacements: Dict[str, List[float]] = {node_id: [0.0, 0.0] for node_id in node_ids}
+        for i, node_a in enumerate(node_ids):
+            for j in range(i + 1, n):
+                node_b = node_ids[j]
+                dx = positions[node_a][0] - positions[node_b][0]
+                dy = positions[node_a][1] - positions[node_b][1]
+                dist_sq = dx * dx + dy * dy
+                dist = math.sqrt(dist_sq) if dist_sq > 0 else 0.0001
+                force = (k * k) / dist
+                fx = (dx / dist) * force
+                fy = (dy / dist) * force
+                displacements[node_a][0] += fx
+                displacements[node_a][1] += fy
+                displacements[node_b][0] -= fx
+                displacements[node_b][1] -= fy
+
+        # Attractive forces
+        for src, tgt in edges:
+            if src not in positions or tgt not in positions:
+                continue
+            dx = positions[src][0] - positions[tgt][0]
+            dy = positions[src][1] - positions[tgt][1]
+            dist_sq = dx * dx + dy * dy
+            dist = math.sqrt(dist_sq) if dist_sq > 0 else 0.0001
+            force = (dist * dist) / k
+            fx = (dx / dist) * force
+            fy = (dy / dist) * force
+            displacements[src][0] -= fx
+            displacements[src][1] -= fy
+            displacements[tgt][0] += fx
+            displacements[tgt][1] += fy
+
+        # Apply displacements with temperature limit
+        for node_id in node_ids:
+            disp_x, disp_y = displacements[node_id]
+            disp_len = math.sqrt(disp_x * disp_x + disp_y * disp_y)
+            if disp_len > 0:
+                scale = min(disp_len, temperature) / disp_len
+                positions[node_id][0] += disp_x * scale
+                positions[node_id][1] += disp_y * scale
+
+            # Keep within bounds with soft bounce
+            positions[node_id][0] = max(0.05, min(0.95, positions[node_id][0]))
+            positions[node_id][1] = max(0.05, min(0.95, positions[node_id][1]))
+
+        temperature -= cooling
+
+    return {node_id: (round_float(pos[0], 4), round_float(pos[1], 4)) for node_id, pos in positions.items()}
+
+
 def build_batch_task_dag(
     tasks: Dict[Tuple[str, str], dict],
     task_scores: Dict[Tuple[str, str], float],
@@ -616,40 +719,53 @@ def build_batch_task_dag(
 ) -> dict:
     start_bin = default_window["startBin"]
     end_bin = default_window["endBin"]
-    active_tasks = [
+
+    # Build the global DAG from all scored tasks so the frontend can filter by
+    # any hover time window without needing per-window layouts.
+    scored_tasks = [
         task
         for key, task in tasks.items()
-        if task["start_bin"] <= end_bin and task["end_bin"] >= start_bin and task_scores.get(key, 0) > 0
+        if task_scores.get(key, 0) > 0
     ]
-    active_tasks.sort(key=lambda task: (-task_scores.get((task["job_name"], task["task_name"]), 0), task["start_bin"], task["job_name"], task["task_name"]))
-    selected = active_tasks[:BATCH_DAG_NODE_LIMIT]
-    selected.sort(key=lambda task: (task["start_bin"], task["job_name"], task["task_name"]))
+    scored_tasks.sort(key=lambda task: (-task_scores.get((task["job_name"], task["task_name"]), 0), task["start_bin"], task["job_name"], task["task_name"]))
+    selected = scored_tasks[:BATCH_DAG_NODE_LIMIT]
+
+    # Build edges for selected tasks (global edges filtered to selected set)
+    all_edges = _parse_task_edges(tasks)
+    selected_ids = {f"{t['job_name']}:{t['task_name']}" for t in selected}
+    filtered_edges = [(src, tgt) for src, tgt in all_edges if src in selected_ids and tgt in selected_ids]
+
+    # Force-directed layout precomputation
+    node_ids = [f"{t['job_name']}:{t['task_name']}" for t in selected]
+    layout = _force_directed_layout(node_ids, filtered_edges)
 
     nodes = []
     max_score = max((task_scores.get((task["job_name"], task["task_name"]), 0) for task in selected), default=0)
-    for index, task in enumerate(selected):
+    for task in selected:
+        node_id = f"{task['job_name']}:{task['task_name']}"
         score = task_scores.get((task["job_name"], task["task_name"]), 0)
-        x = 0.0 if end_bin == start_bin else (task["start_bin"] - start_bin) / max(1, end_bin - start_bin)
-        y = 0.5 if len(selected) <= 1 else index / (len(selected) - 1)
+        x, y = layout.get(node_id, (0.5, 0.5))
         nodes.append(
             {
-                "id": f"{task['job_name']}:{task['task_name']}",
+                "id": node_id,
                 "jobName": task["job_name"],
                 "taskName": task["task_name"],
                 "type": task["task_type"],
                 "startBin": task["start_bin"],
                 "endBin": task["end_bin"],
                 "x": round_float(max(0.0, min(1.0, x)), 4),
-                "y": round_float(y, 4),
+                "y": round_float(max(0.0, min(1.0, y)), 4),
                 "resourceScore": round_float(score / max_score if max_score else 0.0, 4),
             }
         )
 
+    edges_payload = [{"source": src, "target": tgt} for src, tgt in filtered_edges]
+
     return {
         "window": {"startBin": start_bin, "endBin": end_bin},
         "nodes": nodes,
-        "edges": [],
-        "notes": ["DAG edge parsing is unavailable for ambiguous task_name formats; edges are intentionally empty."],
+        "edges": edges_payload,
+        "notes": [f"DAG contains {len(nodes)} nodes and {len(edges_payload)} edges from {len(set(t['job_name'] for t in selected))} jobs. Layout precomputed with force-directed algorithm."],
     }
 
 
